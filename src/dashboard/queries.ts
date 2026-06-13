@@ -14,7 +14,7 @@ export function costSince(db: DB, sinceIso: string): number {
 export function recentRuns(db: DB, limit = 50): Record<string, unknown>[] {
   return db
     .prepare(
-      `SELECT t.id, t.repo, t.issue_number, t.title, t.state, t.status, t.spent_usd, t.updated_at,
+      `SELECT t.id, t.repo, t.issue_number, t.title, t.state, t.status, t.spent_usd, t.detail, t.updated_at,
               (SELECT COUNT(*) FROM step s WHERE s.task_id = t.id) AS steps
        FROM task t ORDER BY t.id DESC LIMIT ?`,
     )

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS task (
   state TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   allowed_paths_json TEXT,            -- human-confirmed at SPEC_APPROVAL, not LLM-final
+  detail TEXT,                        -- live fine-grained sub-status for the in-progress phase
   spec_md TEXT,
   worktree_path TEXT,
   branch TEXT,

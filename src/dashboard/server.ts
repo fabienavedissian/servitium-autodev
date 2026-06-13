@@ -196,7 +196,7 @@ setInterval(() => {
   };
   const runs = recentRuns(db, 50);
   const maxStep = (db.prepare('SELECT COALESCE(MAX(id),0) AS m FROM step').get() as { m: number }).m;
-  const fp = JSON.stringify([overview.tasksByState, overview.proposals, overview.costTodayUsd, maxStep, runs.map((r) => [r.id, r.state, r.steps, r.spent_usd])]);
+  const fp = JSON.stringify([overview.tasksByState, overview.proposals, overview.costTodayUsd, maxStep, runs.map((r) => [r.id, r.state, r.steps, r.spent_usd, r.detail])]);
   if (fp === lastFp) return;
   lastFp = fp;
   broadcast({ type: 'changed', overview, runs });

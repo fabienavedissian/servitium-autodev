@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { ensureMirror } from '../git/mirror';
 import { addWorktree, removeWorktree } from '../git/worktree';
 import { LocalRunner, selectRunner } from '../sandbox/run';
@@ -26,6 +27,51 @@ function linkShared(worktree: string): void {
   } catch {
     /* best-effort */
   }
+}
+
+// Reuse node_modules across missions, keyed by package-lock hash. Hardlink-restore (cp -al) is
+// near-instant and cheap on disk; node_modules is read-only during a run so the shared inodes are
+// safe. Falls back to a fresh `npm install` on any miss/failure. Same-fs requirement: cache lives
+// next to the worktree under /opt/autodev.
+function installDeps(
+  host: SandboxRunner,
+  worktree: string,
+  repo: string,
+  log?: (m: string, d?: unknown) => void,
+): { exitCode: number; stderr: string; cached: boolean } {
+  const cacheRoot = process.env.AUTODEV_NPM_CACHE ?? '/opt/autodev/npmcache';
+  const dest = path.join(worktree, 'node_modules');
+  let hash = '';
+  try {
+    hash = crypto.createHash('sha256').update(fs.readFileSync(path.join(worktree, 'package-lock.json'))).digest('hex').slice(0, 16);
+  } catch {
+    /* no lockfile -> no cache key */
+  }
+  const warm = hash ? path.join(cacheRoot, `${repo}-${hash}`) : '';
+
+  if (warm && fs.existsSync(warm) && !fs.existsSync(dest)) {
+    const cp = host.run('cp', ['-al', warm, dest], { cwd: worktree, timeoutMs: 180_000 });
+    if (cp.exitCode === 0 && fs.existsSync(dest)) {
+      log?.(`#deps: restored node_modules from cache (${repo}-${hash})`);
+      return { exitCode: 0, stderr: '', cached: true };
+    }
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+    } catch {
+      /* fall through to fresh install */
+    }
+  }
+
+  const npm = host.run('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], { cwd: worktree, timeoutMs: 900_000 });
+  if (npm.exitCode === 0 && warm && !fs.existsSync(warm)) {
+    try {
+      fs.mkdirSync(path.dirname(warm), { recursive: true });
+      host.run('cp', ['-al', dest, warm], { cwd: worktree, timeoutMs: 180_000 });
+    } catch {
+      /* best-effort cache fill */
+    }
+  }
+  return { exitCode: npm.exitCode, stderr: npm.stderr, cached: false };
 }
 
 function captureBaselines(
@@ -70,6 +116,7 @@ export interface ProcessorDeps {
   gitIdentity?: { name: string; email: string };
   onStep?: (taskId: number, rec: import('../fsm/executor').StepRecord) => void;
   onState?: (taskId: number, state: string, prev: string, spentUsd: number) => void;
+  onProgress?: (taskId: number, phase: string, detail: string) => void;
   log?: (m: string, d?: unknown) => void;
 }
 
@@ -86,6 +133,8 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
     const branch = `autodev/${task.id}`;
     const worktree = path.join(deps.workRoot, String(task.id), task.repo);
 
+    deps.onState?.(task.id, 'SETUP', 'QUEUED', 0);
+    deps.onProgress?.(task.id, 'SETUP', 'Preparing workspace (git worktree)');
     ensureMirror(deps.repoUrl(task.repo), mirror);
     removeWorktree(mirror, worktree);
     addWorktree(mirror, worktree, branch, 'main');
@@ -95,15 +144,15 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
       host.run('git', ['config', 'user.name', id.name], { cwd: worktree });
       host.run('git', ['config', 'user.email', id.email], { cwd: worktree });
 
-      deps.log?.(`#${task.id}: npm install --legacy-peer-deps`);
-      // servitium-api has peer-dep conflicts that require --legacy-peer-deps (matches the repo's setup).
-      const npm = host.run('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], { cwd: worktree, timeoutMs: 900_000 });
+      deps.onProgress?.(task.id, 'SETUP', 'Installing dependencies (npm)');
+      deps.log?.(`#${task.id}: install deps`);
+      const npm = installDeps(host, worktree, task.repo, deps.log);
       if (npm.exitCode !== 0) {
         deps.log?.(`#${task.id}: npm install failed`, npm.stderr.slice(-300));
         return { final: failed(task.id) };
       }
 
-      deps.onState?.(task.id, 'SETUP', 'QUEUED', 0);
+      deps.onProgress?.(task.id, 'SETUP', npm.cached ? 'Capturing the test baseline' : 'Capturing the test baseline (one-time, ~1 min)');
       const baseSha = host.run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim() || 'head';
       const baselines = captureBaselines(host, worktree, deps.mirrorRoot, baseSha, deps.log);
       deps.onStep?.(task.id, {

@@ -155,7 +155,8 @@ function currentCard(task) {
   if (st === 'FAILED') return `<div class="done-note err">✕ Run failed. See the last step above.</div>`;
   if (st === 'REJECTED') return `<div class="done-note">Rejected at triage.</div>`;
   if (st === 'QUEUED') return `<div class="step running"><div class="step-head"><div class="spinner"></div><div class="step-title"><b>Queued — starting…</b></div></div></div>`;
-  return `<div class="step running"><div class="step-head"><div class="spinner"></div><div class="step-title"><b>${esc(PHASE_DESC[st] || st)}</b> <span class="muted">running…</span></div><div class="step-meta"><span class="chip outcome run">in progress</span></div></div></div>`;
+  const sub = task.detail ? `<div class="substatus">${esc(task.detail)}…</div>` : '';
+  return `<div class="step running"><div class="step-head"><div class="spinner"></div><div class="step-title"><b>${esc(PHASE_DESC[st] || st)}</b> <span class="muted">running…</span></div><div class="step-meta"><span class="chip outcome run">in progress</span></div></div>${sub}</div>`;
 }
 
 async function renderRunDetail(id) {

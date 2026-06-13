@@ -79,10 +79,14 @@ async function main(): Promise<void> {
         db.prepare(`INSERT INTO gate_result (task_id, step_id, gate, status, details_json, created_at) VALUES (?,?,?,?,?,?)`)
           .run(tid, stepId, g.gate, g.status, JSON.stringify(g.details ?? {}).slice(0, 8000), at);
       }
+      db.prepare(`UPDATE task SET detail=NULL WHERE id=?`).run(tid); // step recorded -> clear the live sub-status
       console.log(`[step] ${rec.phase} ${rec.role ?? ''} -> ${rec.outcome} ($${rec.costUsd.toFixed(3)})`);
     },
     onState: (tid, state, _prev, spentUsd) => {
-      db.prepare(`UPDATE task SET state=?, spent_usd=?, updated_at=? WHERE id=?`).run(state, spentUsd, new Date().toISOString(), tid);
+      db.prepare(`UPDATE task SET state=?, spent_usd=?, detail=NULL, updated_at=? WHERE id=?`).run(state, spentUsd, new Date().toISOString(), tid);
+    },
+    onProgress: (tid, _phase, detail) => {
+      db.prepare(`UPDATE task SET detail=?, updated_at=? WHERE id=?`).run(detail, new Date().toISOString(), tid);
     },
     log: (m, d) => console.log('[proc]', m, d !== undefined ? JSON.stringify(d).slice(0, 240) : ''),
   });
