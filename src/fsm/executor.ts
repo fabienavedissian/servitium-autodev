@@ -31,6 +31,7 @@ export interface ExecutorDeps {
   runner: SandboxRunner;
   baseRef: string;
   runState: RunState;
+  baselines?: GateContext['baselines'];
   agent?: AgentOptions;
   onCost?: (usd: number, model: string) => void;
   attempt: { n: number };
@@ -61,6 +62,7 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
     baseRef: deps.baseRef,
     specFiles: deps.runState.specFiles,
     frozenTests: deps.runState.frozenTests,
+    baselines: deps.baselines,
   });
 
   return async (state: State): Promise<ExecResult> => {

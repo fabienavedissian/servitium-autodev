@@ -1,8 +1,10 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { ensureMirror } from '../git/mirror';
 import { addWorktree, removeWorktree } from '../git/worktree';
 import { LocalRunner, selectRunner } from '../sandbox/run';
 import { runTask } from './runTask';
+import { parseJestJson } from '../gates/jest';
 import { composePrTitle, composePrBody } from '../github/pr';
 import type { AgentSdk } from '../sdk/client';
 import type { Ledger } from '../cost/ledger';
@@ -10,6 +12,51 @@ import type { GithubClient } from '../github/client';
 import type { QueuedTask, ProcessResult } from './poll';
 import type { MachineConfig, TaskState } from '../fsm/machine';
 import type { TaskContext } from '../agents/prompts';
+import type { GateContext } from '../gates/index';
+import type { SandboxRunner } from '../sandbox/run';
+
+// Provide the non-repo monorepo-root shared/ folder next to the worktree (servitium-api imports it
+// via ../../../../shared). Captures the pristine baseline (pre-existing jest failures + tsc errors)
+// so the gates require NO NEW failures rather than a fully-green messy real codebase.
+function linkShared(worktree: string): void {
+  const src = process.env.AUTODEV_SHARED_DIR ?? '/opt/autodev/shared';
+  const link = path.join(path.dirname(worktree), 'shared');
+  try {
+    if (fs.existsSync(src) && !fs.existsSync(link)) fs.symlinkSync(src, link, 'dir');
+  } catch {
+    /* best-effort */
+  }
+}
+
+function captureBaselines(
+  host: SandboxRunner,
+  worktree: string,
+  cacheDir: string,
+  sha: string,
+  log?: (m: string, d?: unknown) => void,
+): GateContext['baselines'] {
+  const cacheFile = path.join(cacheDir, `baseline-${sha}.json`);
+  if (fs.existsSync(cacheFile)) {
+    try {
+      return JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as GateContext['baselines'];
+    } catch {
+      /* recompute */
+    }
+  }
+  log?.(`capturing baselines (jest + tsc) for ${sha.slice(0, 7)} — one-time, several minutes`);
+  const j = host.run('npx', ['jest', '--runInBand', '--ci', '--json'], { cwd: worktree, timeoutMs: 1_800_000 });
+  const failingTests = parseJestJson(j.stdout || j.stderr).failures;
+  const t = host.run('npx', ['tsc', '--noEmit', '-p', 'tsconfig.json'], { cwd: worktree, timeoutMs: 600_000 });
+  const tscErrors = `${t.stdout}\n${t.stderr}`.split('\n').map((l) => l.trim()).filter((l) => /error TS\d+:/.test(l));
+  const baselines = { failingTests, tscErrors };
+  try {
+    fs.writeFileSync(cacheFile, JSON.stringify(baselines));
+  } catch {
+    /* best-effort cache */
+  }
+  log?.(`baseline: ${failingTests.length} pre-existing test failures, ${tscErrors.length} tsc errors`);
+  return baselines;
+}
 
 export interface ProcessorDeps {
   sdk: AgentSdk;
@@ -39,6 +86,7 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
     ensureMirror(deps.repoUrl(task.repo), mirror);
     removeWorktree(mirror, worktree);
     addWorktree(mirror, worktree, branch, 'main');
+    linkShared(worktree);
     try {
       const id = deps.gitIdentity ?? { name: 'AutoDev', email: 'autodev@servitium.org' };
       host.run('git', ['config', 'user.name', id.name], { cwd: worktree });
@@ -52,6 +100,9 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
         return { final: failed(task.id) };
       }
 
+      const baseSha = host.run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim() || 'head';
+      const baselines = captureBaselines(host, worktree, deps.mirrorRoot, baseSha, deps.log);
+
       const ctx: TaskContext = { repo: task.repo, title: task.title, body: task.body, allowedPaths: task.allowedPaths };
       const final = await runTask({
         sdk: deps.sdk,
@@ -60,6 +111,7 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
         baseRef: 'main',
         ctx,
         caps: deps.caps,
+        baselines,
         onCost: (usd, model) => deps.ledger.record(model, { input_tokens: 0, output_tokens: 0 }, { costUsd: usd, taskId: task.id }),
       });
 

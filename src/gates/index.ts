@@ -21,7 +21,7 @@ export interface GateContext {
   baseRef: string; // merge-base, e.g. the captured origin/main at SETUP
   specFiles?: string[]; // spec files added/modified this step (tests-red, relevance)
   frozenTests?: Record<string, string>; // path -> content hash, frozen at TESTS_FIRST (immutability)
-  baselines?: { tscErrors?: string[]; auditAdvisories?: string[]; semgrepFindings?: string[] };
+  baselines?: { tscErrors?: string[]; auditAdvisories?: string[]; semgrepFindings?: string[]; failingTests?: string[] };
 }
 
 export interface GateResult {

@@ -39,8 +39,12 @@ function fakeSdk(): AgentSdk {
 function gateRunner(): FakeRunner {
   return new FakeRunner((command, args) => {
     if (command === 'npx' && args[0] === 'jest') {
+      if (args.includes('--json')) {
+        // tests-green: a clean suite (no failures)
+        return result({ stdout: JSON.stringify({ numTotalTests: 1, testResults: [{ name: 'x', assertionResults: [{ fullName: 'ok', status: 'passed' }] }] }) });
+      }
       const hasSpec = args.some((a) => a.endsWith('.spec.ts'));
-      return result({ exitCode: hasSpec ? 1 : 0 });
+      return result({ exitCode: hasSpec ? 1 : 0 }); // tests-red: new specs fail
     }
     if (command === 'npx' && args[0] === 'tsc') return result({ exitCode: 0 });
     if (command === 'git' && args[0] === 'diff') return result({ stdout: '' });

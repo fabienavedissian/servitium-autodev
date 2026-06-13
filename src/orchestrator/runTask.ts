@@ -5,6 +5,7 @@ import { buildHooks, type GuardState, type Phase } from '../sdk/hooks';
 import type { AgentSdk } from '../sdk/client';
 import type { SandboxRunner } from '../sandbox/run';
 import type { TaskContext } from '../agents/prompts';
+import type { GateContext } from '../gates/index';
 
 export interface RunTaskDeps {
   sdk: AgentSdk;
@@ -13,6 +14,7 @@ export interface RunTaskDeps {
   baseRef: string;
   ctx: TaskContext;
   caps: MachineConfig;
+  baselines?: GateContext['baselines'];
   onCost?: (usd: number, model: string) => void;
   spendPaused?: () => boolean;
 }
@@ -47,6 +49,7 @@ export async function runTask(deps: RunTaskDeps): Promise<TaskState> {
     runner: deps.runner,
     baseRef: deps.baseRef,
     runState,
+    baselines: deps.baselines,
     attempt,
     onCost: deps.onCost,
     agent: {
