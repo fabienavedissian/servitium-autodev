@@ -179,17 +179,24 @@ function renderStep(s, i) {
     </div></div>`;
 }
 
+const HUMAN_KEY = { actionable: 'Actionable', reason: 'Reason', spec: 'Spec', acceptanceCriteria: 'Acceptance criteria', allowedPaths: 'Scope (allowed paths)', decision: 'Decision', notes: 'Notes', findings: 'Findings', summary: 'Summary', specFiles: 'Spec files', criticals: 'Critical issues', repro: 'Reproduction', done: 'Done', prTitle: 'PR title', prSummary: 'PR summary' };
 function renderAgentText(text) {
   if (!text) return '';
-  let obj = null; try { obj = JSON.parse(text); } catch {}
-  if (obj && typeof obj === 'object') {
-    return '<div class="agent-out">' + Object.entries(obj).map(([k, v]) => {
-      if (Array.isArray(v)) return v.length ? `<div class="ao-k">${esc(k)}</div><ul>${v.map((x) => `<li>${esc(typeof x === 'string' ? x : JSON.stringify(x))}</li>`).join('')}</ul>` : '';
+  let t = String(text).trim();
+  const fence = /```(?:json)?\s*([\s\S]*?)\s*```/.exec(t); // agents often wrap JSON in a code fence
+  if (fence) t = fence[1].trim();
+  let obj = null; try { obj = JSON.parse(t); } catch {}
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    const parts = Object.entries(obj).map(([k, v]) => {
+      const label = HUMAN_KEY[k] || k;
+      if (Array.isArray(v)) return v.length ? `<div class="ao-k">${esc(label)}</div><ul>${v.map((x) => `<li>${esc(typeof x === 'string' ? x : JSON.stringify(x))}</li>`).join('')}</ul>` : '';
       if (v == null || v === '') return '';
-      return `<div class="ao-k">${esc(k)}</div><div class="ao-v">${esc(typeof v === 'string' ? v : JSON.stringify(v))}</div>`;
-    }).join('') + '</div>';
+      if (typeof v === 'boolean') return `<div class="ao-k">${esc(label)}</div><div class="ao-v">${v ? 'yes' : 'no'}</div>`;
+      return `<div class="ao-k">${esc(label)}</div><div class="ao-v">${esc(typeof v === 'string' ? v : JSON.stringify(v))}</div>`;
+    }).filter(Boolean);
+    if (parts.length) return '<div class="agent-out">' + parts.join('') + '</div>';
   }
-  return `<div class="agent-out"><pre class="plain">${esc(text)}</pre></div>`;
+  return `<div class="agent-out"><pre class="plain">${esc(t)}</pre></div>`;
 }
 
 function renderDiff(diff) {
