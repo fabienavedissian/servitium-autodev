@@ -156,6 +156,18 @@ async function renderOpportunities() {
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
 }
+// Dynamic (live-patchable) fragments — shared by initial render and the surgical WS update.
+function oppTitleHTML(o) {
+  return `#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">phare</span>' : ''} ${o.seen_before ? '<span class="chip seen">déjà vu</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">pertinent</span>' : o.relevance === -1 ? '<span class="chip no-chip">bruit</span>' : ''}`;
+}
+function oppMetaHTML(o) {
+  return `<span class="chip src-${o.source_kind === 'code' ? 'code' : 'web'}">${o.source_kind === 'code' ? 'code' : 'web'}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span>${o.source_kind === 'code' && o.repo ? `<span class="chip">${esc(String(o.repo).replace('servitium-', ''))}</span>` : `<span class="chip">${esc(o.angle)}</span>`}${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}`;
+}
+function briefActionsHTML(o) {
+  return o.has_brief
+    ? `<button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button>`
+    : `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus (~$0.7) → brief niveau RCON/.ini + prompt Max</span>`;
+}
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };
   const sources = (o.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label || 'source')} ↗</a>`).join(' · ');
@@ -164,8 +176,8 @@ function oppCard(o) {
     <div class="opp-head">
       <div class="opp-score ${scoreClass(o.score)}">${o.score ?? '?'}</div>
       <div class="opp-main">
-        <div class="opp-title">#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">phare</span>' : ''} ${o.seen_before ? '<span class="chip seen">déjà vu</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">pertinent</span>' : o.relevance === -1 ? '<span class="chip no-chip">bruit</span>' : ''}</div>
-        <div class="opp-meta"><span class="chip src-${o.source_kind === 'code' ? 'code' : 'web'}">${o.source_kind === 'code' ? 'code' : 'web'}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span>${o.source_kind === 'code' && o.repo ? `<span class="chip">${esc(String(o.repo).replace('servitium-', ''))}</span>` : `<span class="chip">${esc(o.angle)}</span>`}${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}</div>
+        <div class="opp-title">${oppTitleHTML(o)}</div>
+        <div class="opp-meta">${oppMetaHTML(o)}</div>
         ${o.thesis ? `<div class="opp-thesis">${esc(o.thesis)}</div>` : ''}
       </div>
       <button class="btn ghost toggle">Détails</button>
@@ -176,9 +188,7 @@ function oppCard(o) {
       ${sources ? `<div class="evidence"><b>Sources :</b> ${sources}</div>` : ''}
       <div class="breakdown"><div class="bd-title">Pourquoi ce score (8 critères × poids, calculé par code)</div>${bars}</div>
       <div class="brief-zone"></div>
-      ${o.has_brief
-        ? `<div class="brief-actions"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button></div>`
-        : `<div class="brief-actions"><button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus (~$0.7) → brief niveau RCON/.ini + prompt Max</span></div>`}
+      <div class="brief-actions">${briefActionsHTML(o)}</div>
       <div class="opp-actions">
         <button class="btn ok" data-act="greenlight">Valider</button>
         <button class="btn" data-act="accept">Accepter</button>
@@ -190,25 +200,13 @@ function oppCard(o) {
       <div class="comment-box small"><textarea data-comment placeholder="Oriente le moteur : pourquoi tu aimes / n’aimes pas (nourrit le classement futur)…"></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
     </div></div>`;
 }
-function wireOpp(card) {
+function triggerBrief(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Investigation en cours…'; }
+  api(`/opportunities/${id}/brief`, { method: 'POST', body: '{}' }).then(() => toast('Investigation lancée — le brief apparaîtra ici en direct (~1-2 min).'));
+}
+function wireBriefActions(card) {
   const id = card.dataset.id;
-  card.querySelector('.toggle').addEventListener('click', () => card.classList.toggle('open'));
-  card.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
-    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: btn.dataset.act }) });
-    const fr = { greenlight: 'validé', accept: 'accepté', reject: 'rejeté', thumbs_up: 'pertinent', thumbs_down: 'bruit' };
-    toast('Enregistré : ' + (fr[btn.dataset.act] || btn.dataset.act));
-  }));
-  card.querySelector('[data-brief]')?.addEventListener('click', async (e) => {
-    e.target.disabled = true; e.target.textContent = 'Investigation en cours…';
-    await api(`/opportunities/${id}/brief`, { method: 'POST', body: '{}' });
-    toast('Investigation lancée — le brief apparaîtra ici en direct (~1-2 min).');
-  });
-  card.querySelector('[data-send-comment]')?.addEventListener('click', async () => {
-    const txt = card.querySelector('[data-comment]').value.trim();
-    if (!txt) return;
-    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'comment', comment: txt }) });
-    card.querySelector('[data-comment]').value = ''; toast('Commentaire enregistré');
-  });
+  card.querySelector('[data-brief]')?.addEventListener('click', (e) => triggerBrief(id, e.target));
   card.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
     const d = await api(`/opportunities/${id}`);
     const text = btn.dataset.copy === 'max' ? d.max_prompt : d.deeper_prompt;
@@ -220,6 +218,55 @@ function wireOpp(card) {
     const d = await api(`/opportunities/${id}`);
     zone.innerHTML = `<pre class="brief">${esc(d.brief_md || '(pas de brief)')}</pre>`; zone.dataset.open = '1';
   });
+}
+function wireOpp(card) {
+  const id = card.dataset.id;
+  card.querySelector('.toggle').addEventListener('click', () => card.classList.toggle('open'));
+  card.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
+    const act = btn.dataset.act;
+    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: act }) });
+    const fr = { greenlight: 'validé', accept: 'accepté', reject: 'rejeté', thumbs_up: 'pertinent', thumbs_down: 'bruit' };
+    toast('Enregistré : ' + (fr[act] || act));
+    // Validating = "pursue it" -> also kick off the concrete brief if there is none yet.
+    if (act === 'greenlight' && !card.querySelector('[data-copy]')) triggerBrief(id);
+  }));
+  card.querySelector('[data-send-comment]')?.addEventListener('click', async () => {
+    const txt = card.querySelector('[data-comment]').value.trim();
+    if (!txt) return;
+    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'comment', comment: txt }) });
+    card.querySelector('[data-comment]').value = ''; toast('Commentaire enregistré');
+  });
+  wireBriefActions(card);
+}
+// Surgical WS update: patch existing cards in place (never touches the open accordion / breakdown /
+// textarea), insert new ones, drop gone ones. No full re-render -> open cards stay open.
+function patchOppCard(card, o) {
+  const sc = card.querySelector('.opp-score');
+  if (sc) { sc.textContent = o.score ?? '?'; sc.className = 'opp-score ' + scoreClass(o.score); }
+  const t = card.querySelector('.opp-title'); if (t) t.innerHTML = oppTitleHTML(o);
+  const m = card.querySelector('.opp-meta'); if (m) m.innerHTML = oppMetaHTML(o);
+  const hadCopy = !!card.querySelector('[data-copy]');
+  if (hadCopy !== !!o.has_brief) {
+    const ba = card.querySelector('.brief-actions');
+    if (ba) { ba.innerHTML = briefActionsHTML(o); wireBriefActions(card); }
+  }
+}
+async function updateOpportunitiesLive() {
+  const container = $('#opps');
+  if (!container) return renderOpportunities();
+  const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open&source=' + OPP_SOURCE)]);
+  const seen = new Set();
+  for (const o of list) {
+    seen.add(String(o.id));
+    const card = container.querySelector(`.opp[data-id="${o.id}"]`);
+    if (card) patchOppCard(card, o);
+    else { const n = h(oppCard(o)); wireOpp(n); container.appendChild(n); }
+  }
+  container.querySelectorAll('.opp').forEach((c) => { if (!seen.has(c.dataset.id)) c.remove(); });
+  // KPIs (cheap, no layout disruption)
+  const k = $('#view').querySelectorAll('.kpi .value');
+  if (k[0]) k[0].textContent = ov.openOpportunities;
+  if (k[1]) k[1].textContent = usd(ov.intelMonthUsd);
 }
 
 /* ---------- Carnet de bord ---------- */
@@ -354,7 +401,7 @@ function applyChanged(msg) {
   if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // don't clobber typing
   if (OPEN_RUN) return updateRunDetailLive();
   if (VIEW === 'overview') renderOverview();
-  else if (VIEW === 'opportunities') renderOpportunities();
+  else if (VIEW === 'opportunities') updateOpportunitiesLive();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'runs') renderRuns();
 }
