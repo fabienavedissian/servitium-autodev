@@ -12,6 +12,7 @@ async function api(path, opts) {
 
 let VIEW = 'opportunities';
 let OPP_SOURCE = 'all';
+let OPP_STATUS = 'open';
 let PROP_FILTER = '';
 let OPEN_RUN = null;
 let es = null;
@@ -137,23 +138,25 @@ function wireProp(card) {
 const scoreClass = (s) => (s >= 85 ? 'flag' : s >= 65 ? 'good' : 'mid');
 const KIND_FR = { feature: 'feature', game: 'jeu', business: 'métier', integration: 'intégration', pricing: 'tarif', 'tech-enabler': 'technique', security: 'sécurité', performance: 'perf', refactor: 'refactor', 'lib-upgrade': 'libs', 'test-gap': 'tests' };
 async function renderOpportunities() {
-  const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open&source=' + OPP_SOURCE)]);
+  const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
   const last = ov.lastRun;
   const lastTxt = last ? `dernière veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
-  const cap = 45, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
+  const cap = 52, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
   const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
+  const statFilter = [['open', 'À traiter'], ['validated', 'Validées'], ['all', 'Tout']].map(([k, l]) => `<button data-stat="${k}" class="${OPP_STATUS === k ? 'active' : ''}">${l}</button>`).join('');
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
       <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="en direct"></span><button class="btn ghost" id="scan-code">Analyser le code</button><button class="btn" id="run-now">Lancer la veille</button></div></div>
     <div class="grid kpis">
       <div class="card kpi"><div class="label">Opportunités ouvertes</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} phares</div></div>
-      <div class="card kpi"><div class="label">Dépense intel (mois)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">plafond ${usd(cap)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
+      <div class="card kpi"><div class="label">Dépense intel (mois)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">plafond ${usd(cap)} ~ 50 EUR</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
     </div>
-    <div class="filters">${srcFilter}</div>
-    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucune opportunité ici. « Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts (sécurité, perf, refactor, libs).</div>'}</div>`;
-  $('#run-now').addEventListener('click', async () => { try { await api('/sie/run-now', { method: 'POST', body: '{}' }); toast('Veille lancée — elle apparaîtra ici en direct.'); } catch { toast('Une veille est déjà en cours.'); } });
-  $('#scan-code').addEventListener('click', async () => { await api('/sie/code-scan-now', { method: 'POST', body: '{}' }); toast('Analyse du code lancée (repo du jour) — résultats en direct.'); });
+    <div class="filters">${statFilter}<span style="width:14px"></span>${srcFilter}</div>
+    <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
+  $('#run-now').addEventListener('click', async () => { const r = await api('/sie/run-now', { method: 'POST', body: '{}' }); toast(r && r.error ? r.error : 'Veille lancée — elle apparaîtra ici en direct.'); });
+  $('#scan-code').addEventListener('click', async () => { const r = await api('/sie/code-scan-now', { method: 'POST', body: '{}' }); toast(r && r.error ? r.error : 'Analyse du code lancée — résultats en direct.'); });
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
+  $('#view').querySelectorAll('[data-stat]').forEach((b) => b.addEventListener('click', () => { OPP_STATUS = b.dataset.stat; renderOpportunities(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
 }
 // Dynamic (live-patchable) fragments — shared by initial render and the surgical WS update.
@@ -203,9 +206,11 @@ function oppCard(o) {
       <div class="comment-box small"><textarea data-comment placeholder="Oriente le moteur : pourquoi tu aimes / n’aimes pas (nourrit le classement futur)…"></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
     </div></div>`;
 }
-function triggerBrief(id, btn) {
+async function triggerBrief(id, btn) {
   if (btn) { btn.disabled = true; btn.textContent = 'Investigation en cours…'; }
-  api(`/opportunities/${id}/brief`, { method: 'POST', body: '{}' }).then(() => toast('Investigation lancée — le brief apparaîtra ici en direct (~1-2 min).'));
+  const r = await api(`/opportunities/${id}/brief`, { method: 'POST', body: '{}' });
+  if (r && r.error) { toast(r.error); if (btn) { btn.disabled = false; btn.textContent = 'Générer le brief concret'; } }
+  else toast('Investigation profonde lancée — le brief apparaîtra ici en direct (~5-10 min de recherche).');
 }
 function wireBriefActions(card) {
   const id = card.dataset.id;
@@ -257,7 +262,7 @@ function patchOppCard(card, o) {
 async function updateOpportunitiesLive() {
   const container = $('#opps');
   if (!container) return renderOpportunities();
-  const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open&source=' + OPP_SOURCE)]);
+  const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
   const seen = new Set();
   for (const o of list) {
     seen.add(String(o.id));

@@ -109,6 +109,9 @@ const server = http.createServer(async (req, res) => {
     const now = new Date();
     const startDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
     const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    const intelMonthUsd = (db.prepare("SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE scope='intel' AND created_at >= ?").get(startMonth) as { s: number }).s;
+    const intelCapped = intelMonthUsd >= cfg.SIE_MONTHLY_CAP_USD;
+    const capMsg = `Plafond intel mensuel atteint (${intelMonthUsd.toFixed(2)}$ / ${cfg.SIE_MONTHLY_CAP_USD}$ ~ 50 EUR). Ca reprendra le mois prochain.`;
 
     if (p === '/api/overview') {
       return send(res, 200, {
@@ -171,6 +174,7 @@ const server = http.createServer(async (req, res) => {
       const id = Number(oppBrief[1]);
       const exists = db.prepare('SELECT 1 FROM opportunity WHERE id=?').get(id);
       if (!exists) return send(res, 404, { error: 'not found' });
+      if (intelCapped) return send(res, 429, { error: capMsg });
       const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/brief-opportunity.js', String(id)], {
         cwd: process.cwd(),
         detached: true,
@@ -183,7 +187,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/sie/run-now' && req.method === 'POST') {
       const today = new Date().toISOString().slice(0, 10);
       const running = db.prepare("SELECT 1 FROM sie_run WHERE run_date=? AND status='running'").get(today);
-      if (running) return send(res, 409, { error: 'a veille is already running' });
+      if (running) return send(res, 409, { error: 'Une veille est déjà en cours.' });
+      if (intelCapped) return send(res, 429, { error: capMsg });
       const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-veille.js', '--force'], {
         cwd: process.cwd(),
         detached: true,
@@ -194,6 +199,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, started: true });
     }
     if (p === '/api/sie/code-scan-now' && req.method === 'POST') {
+      if (intelCapped) return send(res, 429, { error: capMsg });
       const body = await readBody(req);
       const repoArg = typeof body.repo === 'string' && /^[a-z0-9-]+$/i.test(body.repo) ? [body.repo] : [];
       const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-code-scan.js', ...repoArg], {

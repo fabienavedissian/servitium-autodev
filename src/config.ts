@@ -7,9 +7,10 @@ const ConfigSchema = z.object({
   GITHUB_ORG: z.string().default('fabienavedissian'),
   TARGET_REPOS: z.string().default('servitium-api'),
 
-  // Spend caps (USD). Monthly is the primary kill-switch; daily only paces.
-  MONTHLY_SPEND_CAP_USD: z.coerce.number().positive().default(100),
-  DAILY_SPEND_CAP_USD: z.coerce.number().positive().default(10),
+  // Spend caps (USD). The MONTHLY cap is the single hard guard (~50 EUR max). Daily is generous
+  // (only a runaway-day backstop), so it never blocks normal use. ~52 USD stays under 50 EUR.
+  MONTHLY_SPEND_CAP_USD: z.coerce.number().positive().default(52),
+  DAILY_SPEND_CAP_USD: z.coerce.number().positive().default(20),
   PER_TASK_BUDGET_USD: z.coerce.number().positive().default(10),
 
   // Anti-loop backstops.
@@ -24,10 +25,10 @@ const ConfigSchema = z.object({
   // so the ~50 EUR intel lane can neither starve nor be starved by the build lane.
   SIE_ENABLED: z.coerce.boolean().default(true),
   SIE_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(5),
-  SIE_MONTHLY_CAP_USD: z.coerce.number().positive().default(45), // ~50 EUR, headroom for Opus variance
-  SIE_DAILY_CAP_USD: z.coerce.number().positive().default(3),
-  SIE_RUN_BUDGET_USD: z.coerce.number().positive().default(2.2), // per-run hard abort (skips brief first)
-  SIE_BRIEF_TOP_N: z.coerce.number().int().nonnegative().default(1),
+  SIE_MONTHLY_CAP_USD: z.coerce.number().positive().default(52), // ~50 EUR hard guard (the only real limit)
+  SIE_DAILY_CAP_USD: z.coerce.number().positive().default(20), // generous runaway-day backstop, never paces you
+  SIE_RUN_BUDGET_USD: z.coerce.number().positive().default(1.5), // daily veille per-run abort (no Opus baked in)
+  SIE_BRIEF_TOP_N: z.coerce.number().int().nonnegative().default(0), // NO auto-brief: the deep Opus brief only runs on YOUR greenlight
   PER_BRIEF_BUDGET_USD: z.coerce.number().positive().default(3), // a DEEP investigation can spend more
 
   // Paths.
