@@ -67,6 +67,8 @@ export interface ProcessorDeps {
   repoUrl: (repo: string) => string; // PAT https URL to mirror + push
   github?: GithubClient;
   gitIdentity?: { name: string; email: string };
+  onStep?: (taskId: number, rec: import('../fsm/executor').StepRecord) => void;
+  onState?: (taskId: number, state: string, prev: string, spentUsd: number) => void;
   log?: (m: string, d?: unknown) => void;
 }
 
@@ -113,6 +115,8 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
         caps: deps.caps,
         baselines,
         onCost: (usd, model) => deps.ledger.record(model, { input_tokens: 0, output_tokens: 0 }, { costUsd: usd, taskId: task.id }),
+        onStep: (rec) => deps.onStep?.(task.id, rec),
+        onState: (state, prev, spentUsd) => deps.onState?.(task.id, state, prev, spentUsd),
       });
 
       let prCreated: { number: number; url: string } | undefined;

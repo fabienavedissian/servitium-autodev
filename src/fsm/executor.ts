@@ -1,5 +1,19 @@
-import type { State } from './states';
+import type { Outcome, State } from './states';
 import type { ExecResult, TaskState } from './machine';
+
+// Rich per-step record for the dashboard: what each agent did, decided, the gates, the diff, cost.
+export interface StepRecord {
+  phase: State;
+  role?: RoleName;
+  model?: string;
+  status: 'ok' | 'bounced' | 'error';
+  outcome: Outcome;
+  text?: string; // the agent's full output (analysis / review feedback / decision)
+  costUsd: number;
+  gates?: { gate: string; status: string; details?: unknown }[];
+  diff?: string;
+  note?: string;
+}
 import { ROLES, modelForImplement, type RoleName } from '../agents/roles';
 import { runRole, type QueryFn } from '../agents/run';
 import { systemPromptFor, type TaskContext } from '../agents/prompts';
@@ -34,6 +48,7 @@ export interface ExecutorDeps {
   baselines?: GateContext['baselines'];
   agent?: AgentOptions;
   onCost?: (usd: number, model: string) => void;
+  onStep?: (rec: StepRecord) => void;
   attempt: { n: number };
   hard?: boolean;
 }
@@ -86,7 +101,8 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
       maxBudgetUsd: deps.agent?.perRoleBudgetUsd ?? 3,
     });
     const cost = res.totalCostUsd ?? 0;
-    deps.onCost?.(cost, modelOverride ?? ROLES[role].model);
+    const usedModel = modelOverride ?? ROLES[role].model;
+    deps.onCost?.(cost, usedModel);
 
     const parsed = parseRoleOutcome(role, res.text);
 
@@ -100,17 +116,34 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
       deps.runState.specFiles = parsed.data.specFiles as string[];
     }
 
+    const base = { phase: state, role, model: usedModel, text: res.text, costUsd: cost };
+    const gateInfo = (g: { results: { gate: string; status: string; details: unknown }[] }) =>
+      g.results.map((r) => ({ gate: r.gate, status: r.status, details: r.details }));
+    const captureDiff = (): string | undefined => {
+      try {
+        return deps.runner.run('git', ['diff', deps.baseRef], { cwd: deps.worktreeRoot }).stdout.slice(0, 60_000);
+      } catch {
+        return undefined;
+      }
+    };
+
     // Gate-driven states: the deterministic matrix is authoritative, not the agent's self-report.
     if (state === 'TESTS_FIRST') {
       const s = await runGates([testsRedGate], gateCtx());
-      return { outcome: s.allPass ? 'red' : 'not-red', costUsd: cost, note: s.failed.join(',') };
+      const outcome: Outcome = s.allPass ? 'red' : 'not-red';
+      deps.onStep?.({ ...base, status: s.allPass ? 'ok' : 'error', outcome, gates: gateInfo(s), note: s.failed.join(',') });
+      return { outcome, costUsd: cost, note: s.failed.join(',') };
     }
     if (state === 'IMPLEMENT') {
       deps.attempt.n += 1;
       const s = await runGates([testsGreenGate, tscGate, scopeDiffGate], gateCtx());
-      return { outcome: s.allPass ? 'gates-pass' : 'gates-fail', costUsd: cost, note: s.failed.join(',') };
+      const outcome: Outcome = s.allPass ? 'gates-pass' : 'gates-fail';
+      deps.onStep?.({ ...base, status: s.allPass ? 'ok' : 'bounced', outcome, gates: gateInfo(s), diff: captureDiff(), note: s.failed.join(',') });
+      return { outcome, costUsd: cost, note: s.failed.join(',') };
     }
 
+    const bounced = parsed.outcome === 'bounce' || parsed.outcome === 'repro';
+    deps.onStep?.({ ...base, status: bounced ? 'bounced' : 'ok', outcome: parsed.outcome, note: res.subtype });
     return { outcome: parsed.outcome, costUsd: cost, note: res.subtype };
   };
 }

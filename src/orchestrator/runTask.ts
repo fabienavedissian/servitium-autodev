@@ -1,5 +1,6 @@
-import { buildExecutor, type RunState } from '../fsm/executor';
+import { buildExecutor, type RunState, type StepRecord } from '../fsm/executor';
 import { runMachine, type MachineConfig, type TaskState } from '../fsm/machine';
+import type { State } from '../fsm/states';
 import { buildMcpServer } from '../sdk/mcpTools';
 import { buildHooks, type GuardState, type Phase } from '../sdk/hooks';
 import type { AgentSdk } from '../sdk/client';
@@ -16,6 +17,8 @@ export interface RunTaskDeps {
   caps: MachineConfig;
   baselines?: GateContext['baselines'];
   onCost?: (usd: number, model: string) => void;
+  onStep?: (rec: StepRecord) => void;
+  onState?: (state: State, prev: State, spentUsd: number) => void;
   spendPaused?: () => boolean;
 }
 
@@ -52,6 +55,7 @@ export async function runTask(deps: RunTaskDeps): Promise<TaskState> {
     baselines: deps.baselines,
     attempt,
     onCost: deps.onCost,
+    onStep: deps.onStep,
     agent: {
       allowedTools: ['Read', 'Grep', 'Glob', ...mcp.toolNames],
       mcpServers: { autodev: mcp.server },
@@ -60,5 +64,5 @@ export async function runTask(deps: RunTaskDeps): Promise<TaskState> {
   });
 
   const start: TaskState = { id: 1, state: 'QUEUED', loopCount: 0, opusReentries: 0, spentUsd: 0 };
-  return runMachine(start, exec, deps.caps);
+  return runMachine(start, exec, deps.caps, (t, prev) => deps.onState?.(t.state, prev, t.spentUsd));
 }

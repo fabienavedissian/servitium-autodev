@@ -30,10 +30,22 @@ async function main(): Promise<void> {
   }
 
   const repo = (cfg.TARGET_REPOS.split(',')[0] || 'servitium-api').trim();
+  const proposalId = Number(row.id);
   const moduleTop = String(row.module ?? '').split('/')[0];
   const allowedPaths = moduleTop ? [`src/${moduleTop}/**`] : ['src/**'];
+
+  // Create a real task row so the spend ledger / steps FK-reference it and the dashboard Runs view fills.
+  const now = new Date().toISOString();
+  const ins = db
+    .prepare(
+      `INSERT INTO task (repo, issue_number, title, state, status, allowed_paths_json, budget_usd, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    )
+    .run(repo, proposalId, String(row.title), 'QUEUED', 'active', JSON.stringify(allowedPaths), cfg.PER_TASK_BUDGET_USD, now, now);
+  const taskId = Number(ins.lastInsertRowid);
+
   const task: QueuedTask = {
-    id: Number(row.id),
+    id: taskId,
     repo,
     title: String(row.title),
     body: `${String(row.problem ?? '')}\n\nAcceptance: ${String(row.acceptance_hint ?? '')}`,
@@ -56,16 +68,39 @@ async function main(): Promise<void> {
     repoUrl: (r) => `https://x-access-token:${pat}@github.com/${cfg.GITHUB_ORG}/${r}.git`,
     github,
     gitIdentity: { name: 'AutoDev', email: 'autodev@servitium.org' },
+    onStep: (tid, rec) => {
+      const detail = JSON.stringify({ outcome: rec.outcome, note: rec.note, status: rec.status, text: (rec.text ?? '').slice(0, 12000), diff: rec.diff });
+      const at = new Date().toISOString();
+      const ins = db
+        .prepare(`INSERT INTO step (task_id, role, model, phase, status, cost_usd, summary, started_at, ended_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .run(tid, rec.role ?? rec.phase, rec.model ?? '', rec.phase, rec.status, rec.costUsd, detail, at, at);
+      const stepId = Number(ins.lastInsertRowid);
+      for (const g of rec.gates ?? []) {
+        db.prepare(`INSERT INTO gate_result (task_id, step_id, gate, status, details_json, created_at) VALUES (?,?,?,?,?,?)`)
+          .run(tid, stepId, g.gate, g.status, JSON.stringify(g.details ?? {}).slice(0, 8000), at);
+      }
+      console.log(`[step] ${rec.phase} ${rec.role ?? ''} -> ${rec.outcome} ($${rec.costUsd.toFixed(3)})`);
+    },
+    onState: (tid, state, _prev, spentUsd) => {
+      db.prepare(`UPDATE task SET state=?, spent_usd=?, updated_at=? WHERE id=?`).run(state, spentUsd, new Date().toISOString(), tid);
+    },
     log: (m, d) => console.log('[proc]', m, d !== undefined ? JSON.stringify(d).slice(0, 240) : ''),
   });
 
   const { final, prCreated } = await processOne(task);
+  db.prepare(`UPDATE task SET state=?, status=?, spent_usd=?, updated_at=? WHERE id=?`).run(
+    final.state,
+    final.state === 'DONE' || final.state === 'PR_READY' ? 'done' : 'needs_human',
+    final.spentUsd,
+    new Date().toISOString(),
+    taskId,
+  );
   console.log(`\nFINAL state=${final.state}  spent=$${final.spentUsd.toFixed(3)}  loops=${final.loopCount}`);
   if (prCreated) {
     console.log(`DRAFT PR: ${prCreated.url}`);
-    db.prepare("UPDATE proposal SET status='done' WHERE id=?").run(task.id);
+    db.prepare("UPDATE proposal SET status='done' WHERE id=?").run(proposalId);
   } else {
-    db.prepare("UPDATE proposal SET status='queued' WHERE id=?").run(task.id);
+    db.prepare("UPDATE proposal SET status='queued' WHERE id=?").run(proposalId);
     console.log('No PR (see state above). Proposal left as "queued" for inspection/retry.');
   }
   process.exit(0);
