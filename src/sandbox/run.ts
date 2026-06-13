@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
 
 export interface CommandResult {
   exitCode: number;
@@ -58,21 +59,36 @@ export class BubblewrapRunner implements SandboxRunner {
   constructor(private readonly extraRoBinds: string[] = []) {}
 
   run(command: string, args: string[], opts: RunOptions): CommandResult {
-    const bwrapArgs = buildBwrapArgs(opts.cwd, this.extraRoBinds, command, args);
+    const mongod = process.env.AUTODEV_MONGOD ?? '/opt/autodev/mongo-cache/mongod';
+    const mongodBin = (() => {
+      try {
+        return fs.existsSync(mongod) ? mongod : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    const bwrapArgs = buildBwrapArgs(opts.cwd, this.extraRoBinds, command, args, mongodBin);
     const env = { ...(opts.env ?? process.env), npm_config_ignore_scripts: 'true' };
     return this.local.run('bwrap', bwrapArgs, { cwd: opts.cwd, timeoutMs: opts.timeoutMs, env });
   }
 }
 
-// Pure bwrap argument builder (unit-tested). No-network, read-only root, /home + /root masked with
-// empty tmpfs (secrets absent), worktree re-exposed writable, npm scripts ignored.
-export function buildBwrapArgs(worktree: string, extraRoBinds: string[], command: string, args: string[]): string[] {
+// Pure bwrap argument builder (unit-tested). No EXTERNAL network (--unshare-net) but a working
+// loopback (brought up via a root-in-userns + CAP_NET_ADMIN wrapper) so mongodb-memory-server can
+// bind 127.0.0.1; read-only root; /home + /root masked with empty tmpfs (secrets absent); worktree
+// re-exposed writable; npm scripts ignored; a pre-downloaded mongod fed via MONGOMS_SYSTEM_BINARY.
+export function buildBwrapArgs(
+  worktree: string,
+  extraRoBinds: string[],
+  command: string,
+  args: string[],
+  mongodBinary?: string,
+): string[] {
   const a = [
-    '--unshare-net',
-    '--unshare-ipc',
-    '--unshare-uts',
-    '--die-with-parent',
-    '--new-session',
+    '--unshare-user', '--uid', '0', '--gid', '0',
+    '--unshare-net', '--unshare-ipc', '--unshare-uts',
+    '--cap-add', 'CAP_NET_ADMIN',
+    '--die-with-parent', '--new-session',
     '--ro-bind', '/', '/',
     '--tmpfs', '/home',
     '--tmpfs', '/root',
@@ -82,7 +98,10 @@ export function buildBwrapArgs(worktree: string, extraRoBinds: string[], command
     '--bind', worktree, worktree,
   ];
   for (const b of extraRoBinds) a.push('--ro-bind', b, b);
-  a.push('--chdir', worktree, '--setenv', 'HOME', worktree, '--setenv', 'npm_config_ignore_scripts', 'true', '--', command, ...args);
+  a.push('--chdir', worktree, '--setenv', 'HOME', worktree, '--setenv', 'npm_config_ignore_scripts', 'true');
+  if (mongodBinary) a.push('--setenv', 'MONGOMS_SYSTEM_BINARY', mongodBinary, '--setenv', 'MONGOMS_DISABLE_POSTINSTALL', '1');
+  // Bring loopback up, then exec the real command (so 127.0.0.1 works for mongod) without external net.
+  a.push('--', '/bin/sh', '-c', 'ip link set lo up 2>/dev/null || true; exec "$0" "$@"', command, ...args);
   return a;
 }
 

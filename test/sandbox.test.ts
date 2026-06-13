@@ -25,16 +25,22 @@ describe('selectRunner', () => {
 });
 
 describe('buildBwrapArgs', () => {
-  it('builds a no-network, secret-masked, worktree-writable sandbox invocation', () => {
-    const a = buildBwrapArgs('/wt/task', ['/cache/mongod'], 'npx', ['jest']);
+  it('builds a no-external-network, secret-masked, worktree-writable sandbox invocation', () => {
+    const a = buildBwrapArgs('/wt/task', ['/cache'], 'npx', ['jest'], '/opt/mongod');
+    const s = a.join(' ');
     expect(a).toContain('--unshare-net');
-    expect(a).toContain('--tmpfs'); // /home and /root masked
-    expect(a.join(' ')).toContain('--tmpfs /home');
-    expect(a.join(' ')).toContain('--tmpfs /root');
-    expect(a.join(' ')).toContain('--bind /wt/task /wt/task');
-    expect(a.join(' ')).toContain('--ro-bind /cache/mongod /cache/mongod');
-    // the actual command comes after the -- separator
-    const sep = a.indexOf('--', 1);
-    expect(a.slice(sep + 1)).toEqual(['npx', 'jest']);
+    expect(a).toContain('--cap-add'); // CAP_NET_ADMIN to bring lo up
+    expect(s).toContain('--tmpfs /home');
+    expect(s).toContain('--tmpfs /root');
+    expect(s).toContain('--bind /wt/task /wt/task');
+    expect(s).toContain('--ro-bind /cache /cache');
+    expect(s).toContain('MONGOMS_SYSTEM_BINARY /opt/mongod');
+    expect(a).toContain('/bin/sh'); // loopback-up wrapper
+    // the real command + args are the last elements
+    expect(a.slice(-2)).toEqual(['npx', 'jest']);
+  });
+
+  it('omits the mongod env when no binary is provided', () => {
+    expect(buildBwrapArgs('/wt', [], 'tsc', []).join(' ')).not.toContain('MONGOMS_SYSTEM_BINARY');
   });
 });
