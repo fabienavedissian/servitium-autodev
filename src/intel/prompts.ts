@@ -98,6 +98,18 @@ export function translateFeasibilityPrompt(f: Record<string, unknown>): string {
   ].join('\n\n');
 }
 
+export function codeAuditPrompt(repo: string, area: string, fileList: string): string {
+  return [
+    `You are a senior engineer auditing the "${repo}" repo, area "${area}". Use your file tools (read, grep, glob)`,
+    `to inspect the real code, then propose CONCRETE, high-value improvements. Each MUST cite a real file path`,
+    `(and line if possible) as evidence - no vague advice. Cover: security flaws, performance, refactor/dead code,`,
+    `missing tests, best-practice violations, risky patterns, and small feature gaps. Skip anything trivial/cosmetic.`,
+    `Files in scope (a sample):\n${fileList}`,
+    `Work in English. Output ONLY JSON: {"opportunities":[{"kind":"security|performance|refactor|test-gap|feature|lib-upgrade","title":string,"thesis":string,"whyNow":string,"fit":string,"dedupKey":string,"evidence":["src/x/y.ts:42"],"severity":"high|medium|low"}]} (max 6, only the genuinely worthwhile).`,
+    `dedupKey = "code:${repo}:<short-slug>". ${GROUND}`,
+  ].join('\n\n');
+}
+
 export function promptsmithPrompt(filledTemplate: string): string {
   return [
     `You are the PROMPTSMITH. Below is a near-final ready-to-paste prompt for a Claude Code Max session.`,

@@ -143,7 +143,7 @@ const server = http.createServer(async (req, res) => {
     // ── Intelligence Engine (SIE) ──────────────────────────────────────────
     if (p === '/api/sie/overview') return send(res, 200, sieOverview(db, startMonth));
     if (p === '/api/sie/runs') return send(res, 200, recentSenseRuns(db));
-    if (p === '/api/opportunities') return send(res, 200, listOpportunities(db, url.searchParams.get('status') ?? 'open'));
+    if (p === '/api/opportunities') return send(res, 200, listOpportunities(db, url.searchParams.get('status') ?? 'open', url.searchParams.get('source') ?? 'all'));
     const oppMatch = /^\/api\/opportunities\/(\d+)$/.exec(p);
     if (oppMatch && req.method === 'GET') {
       const d = opportunityDetail(db, Number(oppMatch[1]));
@@ -185,6 +185,18 @@ const server = http.createServer(async (req, res) => {
       const running = db.prepare("SELECT 1 FROM sie_run WHERE run_date=? AND status='running'").get(today);
       if (running) return send(res, 409, { error: 'a veille is already running' });
       const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-veille.js', '--force'], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore',
+        env: process.env,
+      });
+      child.unref();
+      return send(res, 200, { ok: true, started: true });
+    }
+    if (p === '/api/sie/code-scan-now' && req.method === 'POST') {
+      const body = await readBody(req);
+      const repoArg = typeof body.repo === 'string' && /^[a-z0-9-]+$/i.test(body.repo) ? [body.repo] : [];
+      const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-code-scan.js', ...repoArg], {
         cwd: process.cwd(),
         detached: true,
         stdio: 'ignore',

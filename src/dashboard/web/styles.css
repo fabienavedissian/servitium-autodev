@@ -229,3 +229,8 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .chip.kind.want, .chip.kind.can { color: var(--green); border-color: #1d3a30; background: #0f201a; }
 
 .nav-sep { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--txt-dim); opacity: 0.65; margin: 14px 12px 4px; }
+
+.chip.src-code { color: #c4b5fd; border-color: #3a3270; background: #1c1a36; }
+.chip.src-web { color: #7fd1ff; border-color: #20435c; background: #122230; }
+.chip.security { color: #ff8fa3; border-color: #5a2733; background: #2a1820; }
+.chip.performance { color: #7fd1ff; } .chip.refactor { color: #c4b5fd; } .chip.lib-upgrade { color: var(--amber); } .chip.test-gap { color: #9be6c0; }

@@ -24,6 +24,9 @@ function migrate(db: DB): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_spend_scope ON spend_ledger(scope, created_at)');
   // French display columns (the veille reasons in English; only the owner-facing text is translated).
   for (const c of ['title_fr', 'thesis_fr', 'why_now_fr', 'fit_fr']) ensureColumn(db, 'opportunity', c, 'TEXT');
+  // Opportunity origin: web veille vs a code-analysis pass over the repos.
+  ensureColumn(db, 'opportunity', 'source_kind', "TEXT NOT NULL DEFAULT 'web'");
+  ensureColumn(db, 'opportunity', 'repo', 'TEXT');
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {

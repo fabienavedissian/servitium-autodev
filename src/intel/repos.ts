@@ -99,6 +99,8 @@ export interface OpportunityUpsert {
   sourcesJson: string;
   signalCount: number;
   lastSignalAt?: string;
+  sourceKind?: 'web' | 'code';
+  repo?: string;
 }
 
 // Upsert by dedup_key: a re-surfaced opportunity accretes (signal_count, seen_before, refreshed
@@ -120,12 +122,12 @@ export function upsertOpportunity(db: DB, o: OpportunityUpsert, score: number, w
   }
   const res = db
     .prepare(
-      `INSERT INTO opportunity (score, kind, angle, dedup_key, title, thesis, why_now, fit, feature_json, weight_set_version, sources_json,
+      `INSERT INTO opportunity (score, kind, angle, source_kind, repo, dedup_key, title, thesis, why_now, fit, feature_json, weight_set_version, sources_json,
         signal_count, last_signal_at, flagship, status, first_seen_at, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
-      score, o.kind, o.angle, o.dedupKey, o.title, o.thesis ?? null, o.whyNow ?? null, o.fit ?? null, o.featureJson, weightSetVersion, o.sourcesJson,
+      score, o.kind, o.angle, o.sourceKind ?? 'web', o.repo ?? null, o.dedupKey, o.title, o.thesis ?? null, o.whyNow ?? null, o.fit ?? null, o.featureJson, weightSetVersion, o.sourcesJson,
       o.signalCount, o.lastSignalAt ?? at, tier.flagship ? 1 : 0, tier.status, at, at, at,
     );
   return Number(res.lastInsertRowid);

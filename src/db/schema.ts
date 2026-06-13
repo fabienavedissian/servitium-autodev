@@ -156,9 +156,11 @@ CREATE TABLE IF NOT EXISTS opportunity (
   id INTEGER PRIMARY KEY,
   rank INTEGER,
   score INTEGER,                        -- 0..100, code-computed
-  kind TEXT NOT NULL,                   -- feature|game|business|integration|pricing|tech-enabler
+  kind TEXT NOT NULL,                   -- feature|game|business|integration|pricing|tech-enabler|security|performance|refactor|lib-upgrade|test-gap
   angle TEXT NOT NULL,
-  dedup_key TEXT NOT NULL,              -- slugified canonical noun e.g. 'game:rust'
+  source_kind TEXT NOT NULL DEFAULT 'web', -- web (veille) | code (repo analysis)
+  repo TEXT,                            -- for code opportunities: which repo
+  dedup_key TEXT NOT NULL,              -- slugified canonical noun e.g. 'game:rust' or 'code:api:src/shop'
   title TEXT NOT NULL,                   -- English canonical (used by downstream agents)
   thesis TEXT,
   why_now TEXT,

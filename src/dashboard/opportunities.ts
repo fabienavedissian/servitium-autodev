@@ -26,16 +26,20 @@ function breakdown(featureJson: string, signalCount: number, lastSignalAt?: stri
   };
 }
 
-export function listOpportunities(db: DB, status = 'open'): Record<string, unknown>[] {
-  const where =
+export function listOpportunities(db: DB, status = 'open', source = 'all'): Record<string, unknown>[] {
+  const statusWhere =
     status === 'open'
       ? "status IN ('proposed','greenlit','accepted')"
       : status === 'all'
         ? '1=1'
         : 'status = @status';
+  const where = source === 'web' || source === 'code' ? `${statusWhere} AND source_kind = @source` : statusWhere;
+  const params: Record<string, unknown> = {};
+  if (status !== 'open' && status !== 'all') params.status = status;
+  if (source === 'web' || source === 'code') params.source = source;
   const rows = db
-    .prepare(`SELECT id, rank, score, kind, angle, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
-    .all(status !== 'open' && status !== 'all' ? { status } : {}) as Record<string, unknown>[];
+    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
+    .all(params) as Record<string, unknown>[];
   return rows.map((r) => ({
     ...r,
     sources: safeArr(r.sources_json),

@@ -11,6 +11,7 @@ async function api(path, opts) {
 }
 
 let VIEW = 'opportunities';
+let OPP_SOURCE = 'all';
 let PROP_FILTER = '';
 let OPEN_RUN = null;
 let es = null;
@@ -134,21 +135,25 @@ function wireProp(card) {
 
 /* ---------- Opportunités (Intelligence Engine) ---------- */
 const scoreClass = (s) => (s >= 85 ? 'flag' : s >= 65 ? 'good' : 'mid');
-const KIND_FR = { feature: 'feature', game: 'jeu', business: 'métier', integration: 'intégration', pricing: 'tarif', 'tech-enabler': 'technique' };
+const KIND_FR = { feature: 'feature', game: 'jeu', business: 'métier', integration: 'intégration', pricing: 'tarif', 'tech-enabler': 'technique', security: 'sécurité', performance: 'perf', refactor: 'refactor', 'lib-upgrade': 'libs', 'test-gap': 'tests' };
 async function renderOpportunities() {
-  const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open')]);
+  const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open&source=' + OPP_SOURCE)]);
   const last = ov.lastRun;
   const lastTxt = last ? `dernière veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
   const cap = 45, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
+  const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
-      <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="en direct"></span><button class="btn" id="run-now">Lancer la veille</button></div></div>
+      <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="en direct"></span><button class="btn ghost" id="scan-code">Analyser le code</button><button class="btn" id="run-now">Lancer la veille</button></div></div>
     <div class="grid kpis">
       <div class="card kpi"><div class="label">Opportunités ouvertes</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} phares</div></div>
       <div class="card kpi"><div class="label">Dépense intel (mois)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">plafond ${usd(cap)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
     </div>
-    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucune opportunité pour l’instant. Clique « Lancer la veille » — un balayage web fait remonter des opportunités classées et sourcées.</div>'}</div>`;
+    <div class="filters">${srcFilter}</div>
+    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucune opportunité ici. « Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts (sécurité, perf, refactor, libs).</div>'}</div>`;
   $('#run-now').addEventListener('click', async () => { try { await api('/sie/run-now', { method: 'POST', body: '{}' }); toast('Veille lancée — elle apparaîtra ici en direct.'); } catch { toast('Une veille est déjà en cours.'); } });
+  $('#scan-code').addEventListener('click', async () => { await api('/sie/code-scan-now', { method: 'POST', body: '{}' }); toast('Analyse du code lancée (repo du jour) — résultats en direct.'); });
+  $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
 }
 function oppCard(o) {
@@ -160,7 +165,7 @@ function oppCard(o) {
       <div class="opp-score ${scoreClass(o.score)}">${o.score ?? '?'}</div>
       <div class="opp-main">
         <div class="opp-title">#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">phare</span>' : ''} ${o.seen_before ? '<span class="chip seen">déjà vu</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">pertinent</span>' : o.relevance === -1 ? '<span class="chip no-chip">bruit</span>' : ''}</div>
-        <div class="opp-meta"><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span><span class="chip">${esc(o.angle)}</span>${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}</div>
+        <div class="opp-meta"><span class="chip src-${o.source_kind === 'code' ? 'code' : 'web'}">${o.source_kind === 'code' ? 'code' : 'web'}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span>${o.source_kind === 'code' && o.repo ? `<span class="chip">${esc(String(o.repo).replace('servitium-', ''))}</span>` : `<span class="chip">${esc(o.angle)}</span>`}${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}</div>
         ${o.thesis ? `<div class="opp-thesis">${esc(o.thesis)}</div>` : ''}
       </div>
       <button class="btn ghost toggle">Détails</button>
