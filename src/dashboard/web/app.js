@@ -10,7 +10,7 @@ async function api(path, opts) {
   return r.headers.get('content-type')?.includes('json') ? r.json() : r.text();
 }
 
-let VIEW = 'overview';
+let VIEW = 'opportunities';
 let PROP_FILTER = '';
 let OPEN_RUN = null;
 let es = null;
@@ -44,16 +44,18 @@ function renderLogin() {
 
 /* ---------- Shell ---------- */
 function renderShell() {
-  const nav = [['overview', 'Overview'], ['opportunities', 'Opportunities'], ['logbook', 'Logbook'], ['proposals', 'Proposals'], ['runs', 'Runs']];
+  const primary = [['opportunities', 'Opportunités'], ['logbook', 'Carnet de bord']];
+  const secondary = [['overview', 'Aperçu'], ['proposals', 'Propositions'], ['runs', 'Runs']];
+  const link = ([k, l]) => `<a data-v="${k}">${l}</a>`;
   $('#app').innerHTML = '';
   const shell = h(`
     <div class="shell">
       <aside class="side">
-        <div class="brand"><div class="logo"></div><div><b>AutoDev</b><small>Servitium</small></div></div>
-        <nav class="nav">${nav.map(([k, l]) => `<a data-v="${k}">${l}</a>`).join('')}</nav>
+        <div class="brand"><div class="logo"></div><div><b>Servitium</b><small>Intelligence</small></div></div>
+        <nav class="nav">${primary.map(link).join('')}<div class="nav-sep">Build (secondaire)</div>${secondary.map(link).join('')}</nav>
         <div class="spacer"></div>
-        <div class="foot">draft PRs only<br>no auto-merge, no deploy</div>
-        <a class="nav" data-logout style="color:var(--txt-dim);padding:8px 12px">Sign out</a>
+        <div class="foot">Veille quotidienne · briefs prêts à coller<br>PR en brouillon seulement, aucun déploiement auto</div>
+        <a class="nav" data-logout style="color:var(--txt-dim);padding:8px 12px">Déconnexion</a>
       </aside>
       <main class="main"><div id="view"></div></main>
     </div>`);
@@ -130,54 +132,57 @@ function wireProp(card) {
   }));
 }
 
-/* ---------- Opportunities (Intelligence Engine) ---------- */
+/* ---------- Opportunités (Intelligence Engine) ---------- */
 const scoreClass = (s) => (s >= 85 ? 'flag' : s >= 65 ? 'good' : 'mid');
+const KIND_FR = { feature: 'feature', game: 'jeu', business: 'métier', integration: 'intégration', pricing: 'tarif', 'tech-enabler': 'technique' };
 async function renderOpportunities() {
   const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open')]);
   const last = ov.lastRun;
-  const lastTxt = last ? `last veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opps · ${usd(last.cost_usd)}` : 'no veille run yet';
+  const lastTxt = last ? `dernière veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
   const cap = 45, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Opportunities</h2><div class="muted">${lastTxt}</div></div>
-      <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="live"></span><button class="btn" id="run-now">Run veille now</button></div></div>
+    <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
+      <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="en direct"></span><button class="btn" id="run-now">Lancer la veille</button></div></div>
     <div class="grid kpis">
-      <div class="card kpi"><div class="label">Open opportunities</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} flagship</div></div>
-      <div class="card kpi"><div class="label">Intel spend (month)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">cap ${usd(cap)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
+      <div class="card kpi"><div class="label">Opportunités ouvertes</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} phares</div></div>
+      <div class="card kpi"><div class="label">Dépense intel (mois)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">plafond ${usd(cap)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
     </div>
-    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">No opportunities yet. Click "Run veille now" — a daily web scan will surface ranked, sourced opportunities.</div>'}</div>`;
-  $('#run-now').addEventListener('click', async () => { try { await api('/sie/run-now', { method: 'POST', body: '{}' }); toast('Veille started — it will land live here.'); } catch { toast('A veille is already running.'); } });
+    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucune opportunité pour l’instant. Clique « Lancer la veille » — un balayage web fait remonter des opportunités classées et sourcées.</div>'}</div>`;
+  $('#run-now').addEventListener('click', async () => { try { await api('/sie/run-now', { method: 'POST', body: '{}' }); toast('Veille lancée — elle apparaîtra ici en direct.'); } catch { toast('Une veille est déjà en cours.'); } });
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
 }
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };
   const sources = (o.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label || 'source')} ↗</a>`).join(' · ');
-  const bars = b.bars.map((bar) => `<div class="bd-row" title="${esc(bar.why)}"><span class="bd-k">${esc(bar.key)}</span><div class="bd-bar"><span style="width:${Math.round((bar.value || 0) * 100)}%"></span></div><span class="bd-w">x${bar.weight}</span><span class="bd-ev ${bar.evidence ? '' : 'none'}">${bar.evidence ? 'sourced' : 'no ev'}</span></div>`).join('');
+  const bars = b.bars.map((bar) => `<div class="bd-row" title="${esc(bar.why)}"><span class="bd-k">${esc(bar.key)}</span><div class="bd-bar"><span style="width:${Math.round((bar.value || 0) * 100)}%"></span></div><span class="bd-w">x${bar.weight}</span><span class="bd-ev ${bar.evidence ? '' : 'none'}">${bar.evidence ? 'sourcé' : 'sans preuve'}</span></div>`).join('');
   return `<div class="opp" data-id="${o.id}">
     <div class="opp-head">
       <div class="opp-score ${scoreClass(o.score)}">${o.score ?? '?'}</div>
       <div class="opp-main">
-        <div class="opp-title">#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">flagship</span>' : ''} ${o.seen_before ? '<span class="chip seen">seen before</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">relevant</span>' : o.relevance === -1 ? '<span class="chip no-chip">noise</span>' : ''}</div>
-        <div class="opp-meta"><span class="chip ${esc(o.kind)}">${esc(o.kind)}</span><span class="chip">${esc(o.angle)}</span>${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief ready</span>' : ''}</div>
+        <div class="opp-title">#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">phare</span>' : ''} ${o.seen_before ? '<span class="chip seen">déjà vu</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">pertinent</span>' : o.relevance === -1 ? '<span class="chip no-chip">bruit</span>' : ''}</div>
+        <div class="opp-meta"><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span><span class="chip">${esc(o.angle)}</span>${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}</div>
         ${o.thesis ? `<div class="opp-thesis">${esc(o.thesis)}</div>` : ''}
       </div>
-      <button class="btn ghost toggle">Details</button>
+      <button class="btn ghost toggle">Détails</button>
     </div>
     <div class="opp-body">
-      ${o.why_now ? `<p><b>Why now.</b> ${esc(o.why_now)}</p>` : ''}
-      ${o.fit ? `<p><b>Fit.</b> ${esc(o.fit)}</p>` : ''}
-      ${sources ? `<div class="evidence"><b>Sources:</b> ${sources}</div>` : ''}
-      <div class="breakdown"><div class="bd-title">Why this score (8 features x weights, code-computed)</div>${bars}</div>
+      ${o.why_now ? `<p><b>Pourquoi maintenant.</b> ${esc(o.why_now)}</p>` : ''}
+      ${o.fit ? `<p><b>Lien.</b> ${esc(o.fit)}</p>` : ''}
+      ${sources ? `<div class="evidence"><b>Sources :</b> ${sources}</div>` : ''}
+      <div class="breakdown"><div class="bd-title">Pourquoi ce score (8 critères × poids, calculé par code)</div>${bars}</div>
       <div class="brief-zone"></div>
-      ${o.has_brief ? `<div class="brief-actions"><button class="btn ok" data-copy="max">Copy Max prompt</button><button class="btn ghost" data-copy="deeper">Copy "go deeper" prompt</button><button class="btn ghost" data-view-brief>View brief</button></div>` : '<div class="muted small">Greenlight this to get a deep concrete brief + ready-to-paste Max prompt.</div>'}
+      ${o.has_brief
+        ? `<div class="brief-actions"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button></div>`
+        : `<div class="brief-actions"><button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus (~$0.7) → brief niveau RCON/.ini + prompt Max</span></div>`}
       <div class="opp-actions">
-        <button class="btn ok" data-act="greenlight">Greenlight</button>
-        <button class="btn" data-act="accept">Accept</button>
-        <button class="btn no" data-act="reject">Reject</button>
+        <button class="btn ok" data-act="greenlight">Valider</button>
+        <button class="btn" data-act="accept">Accepter</button>
+        <button class="btn no" data-act="reject">Rejeter</button>
         <span class="spacer-x"></span>
-        <button class="btn ghost" data-act="thumbs_up" title="signal was relevant">Relevant</button>
-        <button class="btn ghost" data-act="thumbs_down" title="noise">Noise</button>
+        <button class="btn ghost" data-act="thumbs_up" title="signal pertinent">Pertinent</button>
+        <button class="btn ghost" data-act="thumbs_down" title="bruit">Bruit</button>
       </div>
-      <div class="comment-box small"><textarea data-comment placeholder="Steer the engine: why you like/dislike this (feeds future ranking)..."></textarea><button class="btn ghost" data-send-comment>Send</button></div>
+      <div class="comment-box small"><textarea data-comment placeholder="Oriente le moteur : pourquoi tu aimes / n’aimes pas (nourrit le classement futur)…"></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
     </div></div>`;
 }
 function wireOpp(card) {
@@ -185,37 +190,43 @@ function wireOpp(card) {
   card.querySelector('.toggle').addEventListener('click', () => card.classList.toggle('open'));
   card.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
     await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: btn.dataset.act }) });
-    toast('Recorded: ' + btn.dataset.act.replace('_', ' '));
+    const fr = { greenlight: 'validé', accept: 'accepté', reject: 'rejeté', thumbs_up: 'pertinent', thumbs_down: 'bruit' };
+    toast('Enregistré : ' + (fr[btn.dataset.act] || btn.dataset.act));
   }));
+  card.querySelector('[data-brief]')?.addEventListener('click', async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Investigation en cours…';
+    await api(`/opportunities/${id}/brief`, { method: 'POST', body: '{}' });
+    toast('Investigation lancée — le brief apparaîtra ici en direct (~1-2 min).');
+  });
   card.querySelector('[data-send-comment]')?.addEventListener('click', async () => {
     const txt = card.querySelector('[data-comment]').value.trim();
     if (!txt) return;
     await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'comment', comment: txt }) });
-    card.querySelector('[data-comment]').value = ''; toast('Comment recorded');
+    card.querySelector('[data-comment]').value = ''; toast('Commentaire enregistré');
   });
   card.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
     const d = await api(`/opportunities/${id}`);
     const text = btn.dataset.copy === 'max' ? d.max_prompt : d.deeper_prompt;
-    try { await navigator.clipboard.writeText(text || ''); toast('Copied. Paste into Claude Code Max.'); } catch { toast('Copy failed — open the brief.'); }
+    try { await navigator.clipboard.writeText(text || ''); toast('Copié. Colle-le dans Claude Code Max.'); } catch { toast('Copie impossible — ouvre le brief.'); }
   }));
   card.querySelector('[data-view-brief]')?.addEventListener('click', async () => {
     const zone = card.querySelector('.brief-zone');
     if (zone.dataset.open) { zone.innerHTML = ''; zone.dataset.open = ''; return; }
     const d = await api(`/opportunities/${id}`);
-    zone.innerHTML = `<pre class="brief">${esc(d.brief_md || '(no brief)')}</pre>`; zone.dataset.open = '1';
+    zone.innerHTML = `<pre class="brief">${esc(d.brief_md || '(pas de brief)')}</pre>`; zone.dataset.open = '1';
   });
 }
 
-/* ---------- Logbook ---------- */
-const KIND_LABEL = { veille: 'veille', decided: 'decided', did: 'did', want: 'want', can: 'can', note: 'note', spent: 'spent' };
+/* ---------- Carnet de bord ---------- */
+const KIND_LABEL = { veille: 'veille', decided: 'décidé', did: 'fait', want: 'envie', can: 'possible', note: 'note', spent: 'dépense' };
 async function renderLogbook() {
   const feed = await api('/logbook');
   const byDay = {};
   feed.forEach((l) => { (byDay[l.dated_on] = byDay[l.dated_on] || []).push(l); });
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Logbook</h2><div class="muted">The carnet de bord: what the engine did, what we want, what we can do.</div></div><span class="live-dot" title="live"></span></div>
-    <div class="card"><div class="comment-box"><textarea id="lb-note" placeholder="Add a note (want / can / idea)..."></textarea><button class="btn" id="lb-send">Add</button></div></div>
-    <div class="logbook">${Object.keys(byDay).length ? Object.entries(byDay).map(([day, items]) => `<div class="lb-day"><div class="lb-date">${esc(day)}</div>${items.map((l) => `<div class="lb-line"><span class="chip kind ${esc(l.kind)}">${esc(KIND_LABEL[l.kind] || l.kind)}</span><span class="lb-sum">${esc(l.summary)}</span>${l.source === 'owner' ? '<span class="muted small">you</span>' : ''}</div>`).join('')}</div>`).join('') : '<div class="empty">Empty. The first veille will start writing the carnet.</div>'}</div>`;
+    <div class="topbar"><div><h2>Carnet de bord</h2><div class="muted">Ce que le moteur a fait, ce qu’on veut, ce qu’on peut faire.</div></div><span class="live-dot" title="en direct"></span></div>
+    <div class="card"><div class="comment-box"><textarea id="lb-note" placeholder="Ajoute une note (envie / idée / possible)…"></textarea><button class="btn" id="lb-send">Ajouter</button></div></div>
+    <div class="logbook">${Object.keys(byDay).length ? Object.entries(byDay).map(([day, items]) => `<div class="lb-day"><div class="lb-date">${esc(day)}</div>${items.map((l) => `<div class="lb-line"><span class="chip kind ${esc(l.kind)}">${esc(KIND_LABEL[l.kind] || l.kind)}</span><span class="lb-sum">${esc(l.summary)}</span>${l.source === 'owner' ? '<span class="muted small">toi</span>' : ''}</div>`).join('')}</div>`).join('') : '<div class="empty">Vide. La première veille commencera à écrire le carnet.</div>'}</div>`;
   $('#lb-send').addEventListener('click', async () => {
     const v = $('#lb-note').value.trim(); if (!v) return;
     await api('/logbook', { method: 'POST', body: JSON.stringify({ kind: 'want', summary: v }) });

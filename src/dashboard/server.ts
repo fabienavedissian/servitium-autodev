@@ -166,6 +166,20 @@ const server = http.createServer(async (req, res) => {
       addLogbookNote(db, kind, summary, new Date().toISOString());
       return send(res, 200, { ok: true });
     }
+    const oppBrief = /^\/api\/opportunities\/(\d+)\/brief$/.exec(p);
+    if (oppBrief && req.method === 'POST') {
+      const id = Number(oppBrief[1]);
+      const exists = db.prepare('SELECT 1 FROM opportunity WHERE id=?').get(id);
+      if (!exists) return send(res, 404, { error: 'not found' });
+      const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/brief-opportunity.js', String(id)], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore',
+        env: process.env,
+      });
+      child.unref();
+      return send(res, 200, { ok: true, started: true });
+    }
     if (p === '/api/sie/run-now' && req.method === 'POST') {
       const today = new Date().toISOString().slice(0, 10);
       const running = db.prepare("SELECT 1 FROM sie_run WHERE run_date=? AND status='running'").get(today);

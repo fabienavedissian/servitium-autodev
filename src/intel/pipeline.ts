@@ -197,39 +197,69 @@ interface IdeaOpp {
   sources?: { label: string; url: string }[];
 }
 
+interface BriefRow {
+  id: number;
+  title: string;
+  thesis: string;
+  why_now: string;
+  fit: string;
+  sources_json: string;
+  score: number;
+}
+
+// The deep concrete investigation for ONE opportunity: a single gated Opus feasibility pass ->
+// deterministic brief + Max prompt + "go deeper" prompt. The hybrid output.
+async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string): Promise<boolean> {
+  const sources = (() => {
+    try {
+      return JSON.parse(r.sources_json || '[]') as { label: string; url: string }[];
+    } catch {
+      return [];
+    }
+  })();
+  deps.onStage?.('BRIEF', r.title);
+  const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' ')), {
+    allowedTools: ['WebSearch', 'WebFetch'],
+    maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
+  });
+  const f = parseJsonLoose<Feasibility>(fres.text);
+  if (!f || !f.recommendation) return false;
+  const opp = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
+  deps.db
+    .prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?')
+    .run(renderBriefMd(opp, f, r.score), renderMaxPrompt(opp, f, r.score), renderDeeperPrompt(opp, f), fres.costUsd, at, r.id);
+  return true;
+}
+
 // Generate the deep concrete brief for up to SIE_BRIEF_TOP_N flagship opportunities that lack one.
 async function briefTopFlagships(deps: VeilleDeps, rs: RunState, at: string): Promise<number> {
   const topN = deps.cfg.SIE_BRIEF_TOP_N;
   if (topN <= 0) return 0;
   const rows = deps.db
     .prepare(`SELECT id, title, thesis, why_now, fit, sources_json, score FROM opportunity WHERE flagship=1 AND brief_md IS NULL AND status='proposed' ORDER BY score DESC LIMIT ?`)
-    .all(topN) as { id: number; title: string; thesis: string; why_now: string; fit: string; sources_json: string; score: number }[];
+    .all(topN) as BriefRow[];
   let n = 0;
   for (const r of rows) {
     const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, deps.now ?? new Date());
     if (cap.paused || rs.spentUsd >= deps.cfg.SIE_RUN_BUDGET_USD) break;
-    const sources = (() => {
-      try {
-        return JSON.parse(r.sources_json || '[]') as { label: string; url: string }[];
-      } catch {
-        return [];
-      }
-    })();
-    deps.onStage?.('BRIEF', r.title);
-    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' ')), {
-      allowedTools: ['WebSearch', 'WebFetch'],
-      maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
-    });
-    const f = parseJsonLoose<Feasibility>(fres.text);
-    if (!f || !f.recommendation) continue;
-    const opp = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
-    const briefMd = renderBriefMd(opp, f, r.score);
-    const maxPrompt = renderMaxPrompt(opp, f, r.score);
-    const deeperPrompt = renderDeeperPrompt(opp, f);
-    deps.db.prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?').run(briefMd, maxPrompt, deeperPrompt, fres.costUsd, at, r.id);
-    n += 1;
+    if (await briefRow(deps, rs, r, at)) n += 1;
   }
   return n;
+}
+
+// On-demand deep investigation for a single opportunity (the dashboard "Generate brief" / greenlight
+// trigger). Honors the intel sub-cap. Returns the spend or null if it couldn't run.
+export async function briefOpportunityById(deps: VeilleDeps, id: number): Promise<{ ok: boolean; costUsd: number; note?: string }> {
+  const now = deps.now ?? new Date();
+  const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
+  if (cap.paused) return { ok: false, costUsd: 0, note: cap.reason };
+  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, sources_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
+  if (!r) return { ok: false, costUsd: 0, note: 'not found' };
+  const rs: RunState = { spentUsd: 0 };
+  const at = now.toISOString();
+  const ok = await briefRow(deps, rs, r, at);
+  if (ok) appendLogbook(deps.db, 'did', `generated deep brief for "${r.title}" ($${rs.spentUsd.toFixed(2)})`, at, `opportunity:${id}`);
+  return { ok, costUsd: rs.spentUsd, note: ok ? undefined : 'feasibility produced no usable JSON' };
 }
 
 export function appendLogbook(db: DB, kind: string, summary: string, at: string, sourceRef?: string, source: 'system' | 'owner' = 'system'): void {
