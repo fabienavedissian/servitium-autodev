@@ -44,10 +44,11 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
       host.run('git', ['config', 'user.name', id.name], { cwd: worktree });
       host.run('git', ['config', 'user.email', id.email], { cwd: worktree });
 
-      deps.log?.(`#${task.id}: npm ci`);
-      const npm = host.run('npm', ['ci', '--no-audit', '--no-fund'], { cwd: worktree, timeoutMs: 900_000 });
+      deps.log?.(`#${task.id}: npm install --legacy-peer-deps`);
+      // servitium-api has peer-dep conflicts that require --legacy-peer-deps (matches the repo's setup).
+      const npm = host.run('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], { cwd: worktree, timeoutMs: 900_000 });
       if (npm.exitCode !== 0) {
-        deps.log?.(`#${task.id}: npm ci failed`, npm.stderr.slice(-300));
+        deps.log?.(`#${task.id}: npm install failed`, npm.stderr.slice(-300));
         return { final: failed(task.id) };
       }
 
