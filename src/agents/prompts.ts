@@ -7,6 +7,8 @@ export interface TaskContext {
   allowedPaths: string[];
   spec?: string;
   acceptanceCriteria?: string[];
+  tier?: 'trivial' | 'standard' | 'complex';
+  sensitive?: boolean;
 }
 
 const CONVENTIONS = [
@@ -34,8 +36,11 @@ function header(ctx: TaskContext): string {
 
 const ROLE_INSTRUCTIONS: Record<RoleName, string> = {
   triage:
-    'You are the TRIAGE agent. Decide if the task is actionable and in scope for an automated atomic change. ' +
-    'Output ONLY JSON: {"actionable": boolean, "reason": string, "duplicateHint"?: string}.',
+    'You are the TRIAGE agent. Decide if the task is actionable and in scope for an automated atomic change, ' +
+    'and SIZE it so downstream effort is proportional. tier: "trivial" (one file, a few lines), "standard" ' +
+    '(one feature dir), or "complex" (multi-file / architectural / data-model). sensitive: true if it touches ' +
+    'auth, sessions, passwords, tokens, crypto, payments, permissions, or anything security-relevant. ' +
+    'Output ONLY JSON: {"actionable": boolean, "tier": "trivial"|"standard"|"complex", "sensitive": boolean, "reason": string, "duplicateHint"?: string}.',
   spec:
     'You are the SPEC agent. Produce a short spec, concrete acceptance criteria, and a TIGHT allowed_paths glob list ' +
     '(over src/ feature dirs only, never the repo root). Every glob MUST point at a directory that actually exists: ' +
@@ -43,7 +48,8 @@ const ROLE_INSTRUCTIONS: Record<RoleName, string> = {
     'a non-existent path cannot cover the fix. Include the dir holding the file you will change AND its *.spec.ts. ' +
     'Output ONLY JSON: {"spec": string, "acceptanceCriteria": string[], "allowedPaths": string[]}.',
   tdd:
-    'You are the TDD agent. Write FAILING tests FIRST that pin the acceptance criteria (mongodb-memory-server for API). ' +
+    'You are the TDD agent. Write the FEWEST FAILING tests that fully pin the acceptance criteria (mongodb-memory-server ' +
+    'for API) — for a small change that is usually 1-3 focused tests, NOT an exhaustive integration suite. ' +
     'Write ONLY *.spec.ts files via fsWrite, then call runGate("tests-red"). ' +
     'Output ONLY JSON: {"specFiles": string[], "summary": string}.',
   implement:

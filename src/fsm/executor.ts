@@ -14,7 +14,7 @@ export interface StepRecord {
   diff?: string;
   note?: string;
 }
-import { ROLES, modelForImplement, type RoleName } from '../agents/roles';
+import { ROLES, modelForImplement, rigorPlan, isSensitive, type RoleName } from '../agents/roles';
 import { runRole, type QueryFn } from '../agents/run';
 import { systemPromptFor, type TaskContext } from '../agents/prompts';
 import { parseRoleOutcome } from './outcomes';
@@ -89,9 +89,24 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
     const role = STATE_ROLE[state];
     if (!role) return { outcome: 'ok' };
 
-    const modelOverride = role === 'implement' ? modelForImplement(deps.attempt.n, deps.hard ?? false) : undefined;
+    // Proportional rigor: lean tier (non-sensitive, not complex) skips the 2nd Opus pass and runs the
+    // challenger on Sonnet. Undefined sensitivity fails safe to full rigor.
+    const plan = rigorPlan(deps.ctx.tier, deps.ctx.sensitive ?? true);
+    if (state === 'RED_TEAM' && !plan.runRedTeam) {
+      deps.onStep?.({ phase: state, role, model: '-', status: 'ok', outcome: 'clean', costUsd: 0, note: 'skipped (lean rigor: not complex / not sensitive)' });
+      return { outcome: 'clean', costUsd: 0 };
+    }
+
+    let effRole = ROLES[role];
+    let modelOverride: string | undefined;
+    if (role === 'implement') modelOverride = modelForImplement(deps.attempt.n, deps.hard ?? false);
+    else if (role === 'challenger') {
+      modelOverride = plan.challengerModel;
+      effRole = { ...effRole, effort: plan.challengerEffort };
+    } else if (role === 'redteam') modelOverride = plan.redteamModel;
+
     const res = await runRole(deps.query, {
-      role: ROLES[role],
+      role: effRole,
       modelOverride,
       prompt: `Perform your role for the current task (FSM state ${state}).`,
       systemPrompt: systemPromptFor(role, deps.ctx),
@@ -103,10 +118,18 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
       maxBudgetUsd: deps.agent?.perRoleBudgetUsd ?? 3,
     });
     const cost = res.totalCostUsd ?? 0;
-    const usedModel = modelOverride ?? ROLES[role].model;
+    const usedModel = modelOverride ?? effRole.model;
     deps.onCost?.(cost, usedModel);
 
     const parsed = parseRoleOutcome(role, res.text);
+
+    if (role === 'triage') {
+      const t = String((parsed.data as { tier?: unknown }).tier ?? 'standard');
+      deps.ctx.tier = (['trivial', 'standard', 'complex'].includes(t) ? t : 'standard') as TaskContext['tier'];
+      const llmSensitive = (parsed.data as { sensitive?: unknown }).sensitive === true;
+      // Code backstop: force full rigor on security-relevant work even if the LLM under-rated it.
+      deps.ctx.sensitive = llmSensitive || isSensitive(deps.ctx.title, deps.ctx.allowedPaths);
+    }
 
     let specNote: string | undefined;
     if (role === 'spec' && parsed.outcome === 'ok') {

@@ -44,3 +44,30 @@ export const ROLES: Record<RoleName, RoleConfig> = {
 export function modelForImplement(attempt: number, hard: boolean): string {
   return hard || attempt >= 2 ? MODELS.opus : MODELS.sonnet;
 }
+
+export type Tier = 'trivial' | 'standard' | 'complex';
+
+// Proportional rigor: the adversarial depth (Opus passes) scales with task size/risk so a one-line
+// fix is not billed two deep Opus audits. A code-side keyword backstop FORCES full rigor on anything
+// security-relevant even if the triage LLM under-rates it — we never trade safety for cost there.
+const SENSITIVE_RE =
+  /(auth|login|logout|password|secret|credential|token|session|jwt|oauth|crypto|encrypt|sign|payment|billing|paypal|stripe|webhook|permission|\brole\b|guard|ddos|whitelist|firewall|\badmin\b|csrf|cors|sql|injection|sanitiz)/i;
+
+export function isSensitive(title: string, paths: string[]): boolean {
+  return SENSITIVE_RE.test(title) || paths.some((p) => SENSITIVE_RE.test(p));
+}
+
+export interface RigorPlan {
+  full: boolean; // full = both Opus adversarial passes; lean = one Sonnet pass, no red team
+  challengerModel: string;
+  challengerEffort: EffortLevel;
+  runRedTeam: boolean;
+  redteamModel: string;
+}
+
+export function rigorPlan(tier: Tier | undefined, sensitive: boolean): RigorPlan {
+  const full = sensitive || tier === 'complex';
+  return full
+    ? { full, challengerModel: MODELS.opus, challengerEffort: 'xhigh', runRedTeam: true, redteamModel: MODELS.opus }
+    : { full, challengerModel: MODELS.sonnet, challengerEffort: 'high', runRedTeam: false, redteamModel: MODELS.sonnet };
+}
