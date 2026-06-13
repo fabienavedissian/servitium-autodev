@@ -2,7 +2,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const usd = (n) => '$' + (Number(n) || 0).toFixed(2);
+const usd = (n) => '$' + (Number(n) || 0).toFixed(n < 1 ? 4 : 2);
 
 async function api(path, opts) {
   const r = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
@@ -12,12 +12,12 @@ async function api(path, opts) {
 
 let VIEW = 'overview';
 let PROP_FILTER = '';
+let OPEN_RUN = null;
 let es = null;
 
 function toast(msg) {
   const t = h(`<div class="toast">${esc(msg)}</div>`);
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2200);
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
 }
 
 /* ---------- Login ---------- */
@@ -26,19 +26,15 @@ function renderLogin() {
   $('#app').innerHTML = '';
   const card = h(`
     <div class="login-wrap"><form class="login-card">
-      <h1>AutoDev</h1><p>Servitium autonomous engineering. Sign in with your Servitium account.</p>
+      <h1>AutoDev</h1><p>Servitium autonomous engineering. Sign in.</p>
       <div class="field"><label>Email</label><input name="email" type="email" autocomplete="username" required></div>
       <div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
-      <div class="err"></div>
-      <button class="btn block" type="submit">Sign in</button>
+      <div class="err"></div><button class="btn block" type="submit">Sign in</button>
     </form></div>`);
   card.querySelector('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    f.querySelector('.err').textContent = '';
+    e.preventDefault(); const f = e.target; f.querySelector('.err').textContent = '';
     try {
-      const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: f.email.value, login: f.email.value, password: f.password.value }) });
+      const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: f.email.value, login: f.email.value, password: f.password.value }) });
       if (!r.ok) { f.querySelector('.err').textContent = r.status === 401 ? 'Invalid credentials.' : 'Auth service unreachable.'; return; }
       boot();
     } catch { f.querySelector('.err').textContent = 'Network error.'; }
@@ -54,22 +50,21 @@ function renderShell() {
     <div class="shell">
       <aside class="side">
         <div class="brand"><div class="logo"></div><div><b>AutoDev</b><small>Servitium</small></div></div>
-        <nav class="nav">${nav.map(([k, l]) => `<a data-v="${k}" class="${k === VIEW ? 'active' : ''}">${l}</a>`).join('')}</nav>
+        <nav class="nav">${nav.map(([k, l]) => `<a data-v="${k}">${l}</a>`).join('')}</nav>
         <div class="spacer"></div>
-        <div class="foot">v0.1 · read &amp; approve<br>no auto-merge, no deploy</div>
+        <div class="foot">draft PRs only<br>no auto-merge, no deploy</div>
         <a class="nav" data-logout style="color:var(--txt-dim);padding:8px 12px">Sign out</a>
       </aside>
       <main class="main"><div id="view"></div></main>
     </div>`);
-  shell.querySelectorAll('[data-v]').forEach((a) => a.addEventListener('click', () => { VIEW = a.dataset.v; route(); }));
+  shell.querySelectorAll('[data-v]').forEach((a) => a.addEventListener('click', () => { VIEW = a.dataset.v; OPEN_RUN = null; route(); }));
   shell.querySelector('[data-logout]').addEventListener('click', async () => { await fetch('/api/logout'); renderLogin(); });
   $('#app').appendChild(shell);
-  route();
-  startStream();
+  route(); startStream();
 }
-
 function route() {
   document.querySelectorAll('.nav a[data-v]').forEach((a) => a.classList.toggle('active', a.dataset.v === VIEW));
+  if (OPEN_RUN) return renderRunDetail(OPEN_RUN);
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'proposals') renderProposals();
   else renderRuns();
@@ -88,67 +83,48 @@ async function renderOverview() {
   const dayPct = Math.min(100, (o.costTodayUsd / o.caps.dailyUsd) * 100 || 0);
   const monPct = Math.min(100, (o.costMonthUsd / o.caps.monthlyUsd) * 100 || 0);
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Overview</h2><div class="muted">Target repos: ${esc(o.repos)}</div></div></div>
+    <div class="topbar"><div><h2>Overview</h2><div class="muted">Target: ${esc(o.repos)}</div></div></div>
     <div class="grid kpis">
-      <div class="card kpi"><div class="label">Proposals</div><div class="value" id="kpi-prop">${props.proposed || 0}</div><div class="sub">${props.approved || 0} approved · ${props.rejected || 0} rejected</div></div>
-      <div class="card kpi"><div class="label">In progress</div><div class="value" id="kpi-doing">${sum(STATE_GROUPS.Doing)}</div><div class="sub">${sum(STATE_GROUPS.Planned)} planned</div></div>
+      <div class="card kpi"><div class="label">Proposals open</div><div class="value">${props.proposed || 0}</div><div class="sub">${props.approved || 0} approved · ${props.done || 0} done</div></div>
+      <div class="card kpi"><div class="label">In progress</div><div class="value">${sum(STATE_GROUPS.Doing)}</div><div class="sub">${sum(STATE_GROUPS.Planned)} planned</div></div>
       <div class="card kpi"><div class="label">Spend today</div><div class="value">${usd(o.costTodayUsd)}</div><div class="sub">cap ${usd(o.caps.dailyUsd)}</div><div class="bar ${dayPct > 80 ? 'warn' : ''}"><span style="width:${dayPct}%"></span></div></div>
-      <div class="card kpi"><div class="label">Spend this month</div><div class="value">${usd(o.costMonthUsd)}</div><div class="sub">cap ${usd(o.caps.monthlyUsd)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
+      <div class="card kpi"><div class="label">This month</div><div class="value">${usd(o.costMonthUsd)}</div><div class="sub">cap ${usd(o.caps.monthlyUsd)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
     </div>
     <div class="section-title">Pipeline</div>
     <div class="grid board">
-      ${Object.entries(STATE_GROUPS).map(([g, states]) => `
-        <div class="col card"><h3>${g} · ${sum(states)}</h3>
-          ${states.filter((s) => o.tasksByState[s]).map((s) => `<div class="state-row"><span class="chip state ${s.toLowerCase()}">${s}</span><span class="count">${o.tasksByState[s]}</span></div>`).join('') || '<div class="muted" style="padding:8px">—</div>'}
-        </div>`).join('')}
+      ${Object.entries(STATE_GROUPS).map(([g, states]) => `<div class="col card"><h3>${g} · ${sum(states)}</h3>
+        ${states.filter((s) => o.tasksByState[s]).map((s) => `<div class="state-row"><span class="chip state">${s}</span><span class="count">${o.tasksByState[s]}</span></div>`).join('') || '<div class="muted" style="padding:8px">—</div>'}</div>`).join('')}
     </div>`;
 }
 
 /* ---------- Proposals ---------- */
 async function renderProposals() {
   const list = await api('/proposals' + (PROP_FILTER ? '?status=' + PROP_FILTER : ''));
-  const cats = ['security', 'performance', 'refactor', 'bug', 'test-gap'];
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Proposals</h2><div class="muted">From the API audit. Approve to queue for an atomic, TDD-backed PR.</div></div></div>
-    <div class="filters">
-      ${[['', 'All'], ['proposed', 'Open'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['queued', 'Queued']].map(([k, l]) => `<button data-f="${k}" class="${PROP_FILTER === k ? 'active' : ''}">${l}</button>`).join('')}
-    </div>
-    <div id="props">${list.length ? list.map(propCard).join('') : '<div class="empty">No proposals yet. Run the API audit to populate this.</div>'}</div>`;
+    <div class="topbar"><div><h2>Proposals</h2><div class="muted">From the API audit. Approve to queue an atomic, TDD-backed PR.</div></div></div>
+    <div class="filters">${[['', 'All'], ['proposed', 'Open'], ['approved', 'Approved'], ['queued', 'Queued'], ['done', 'Done'], ['rejected', 'Rejected']].map(([k, l]) => `<button data-f="${k}" class="${PROP_FILTER === k ? 'active' : ''}">${l}</button>`).join('')}</div>
+    <div id="props">${list.length ? list.map(propCard).join('') : '<div class="empty">No proposals. Run the audit to populate.</div>'}</div>`;
   $('#view').querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => { PROP_FILTER = b.dataset.f; renderProposals(); }));
   $('#view').querySelectorAll('.prop').forEach(wireProp);
 }
 function propCard(p) {
   const cat = (p.category || '').toLowerCase();
-  return `<div class="prop" data-id="${p.id}" data-status="${p.status}">
-    <div class="head">
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div class="rank">${p.rank ?? '·'}</div>
-        <div><h4 class="title">${esc(p.title)}</h4>
-          <div class="meta">
-            <span class="chip ${cat}">${esc(p.category)}</span>
-            ${p.module ? `<span class="chip">${esc(p.module)}</span>` : ''}
-            ${p.impact ? `<span class="chip ${esc(p.impact)}">impact: ${esc(p.impact)}</span>` : ''}
-            ${p.effort ? `<span class="chip">effort: ${esc(p.effort)}</span>` : ''}
-            ${p.status !== 'proposed' ? `<span class="chip">${esc(p.status)}</span>` : ''}
-          </div>
-        </div>
-      </div>
-      <button class="btn ghost toggle">Details</button>
-    </div>
-    <div class="body">
-      ${p.problem ? `<p><b>Problem.</b> ${esc(p.problem)}</p>` : ''}
-      ${p.solution ? `<p><b>Proposed.</b> ${esc(p.solution)}</p>` : ''}
-      ${p.acceptance_hint ? `<p><b>Acceptance.</b> ${esc(p.acceptance_hint)}</p>` : ''}
-      ${p.rationale ? `<p><b>Why ranked here.</b> ${esc(p.rationale)}</p>` : ''}
-      ${p.status === 'proposed' ? `<div class="actions"><button class="btn ok" data-act="approved">Approve</button><button class="btn no" data-act="rejected">Reject</button></div>` : ''}
-    </div></div>`;
+  return `<div class="prop" data-id="${p.id}">
+    <div class="head"><div style="display:flex;gap:12px;align-items:flex-start">
+      <div class="rank">${p.rank ?? '·'}</div>
+      <div><h4 class="title">${esc(p.title)}</h4><div class="meta">
+        <span class="chip ${cat}">${esc(p.category)}</span>${p.module ? `<span class="chip">${esc(p.module)}</span>` : ''}
+        ${p.impact ? `<span class="chip ${esc(p.impact)}">impact ${esc(p.impact)}</span>` : ''}${p.effort ? `<span class="chip">effort ${esc(p.effort)}</span>` : ''}
+        ${p.status !== 'proposed' ? `<span class="chip">${esc(p.status)}</span>` : ''}</div></div></div>
+      <button class="btn ghost toggle">Details</button></div>
+    <div class="body">${p.problem ? `<p><b>Problem.</b> ${esc(p.problem)}</p>` : ''}${p.acceptance_hint ? `<p><b>Acceptance.</b> ${esc(p.acceptance_hint)}</p>` : ''}
+      ${p.status === 'proposed' ? `<div class="actions"><button class="btn ok" data-act="approved">Approve</button><button class="btn no" data-act="rejected">Reject</button></div>` : ''}</div></div>`;
 }
 function wireProp(card) {
   card.querySelector('.toggle').addEventListener('click', () => card.classList.toggle('open'));
   card.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
     await api(`/proposals/${card.dataset.id}/decide`, { method: 'POST', body: JSON.stringify({ status: b.dataset.act }) });
-    toast(b.dataset.act === 'approved' ? 'Approved · queued for the implementer' : 'Rejected');
-    renderProposals();
+    toast(b.dataset.act === 'approved' ? 'Approved' : 'Rejected'); renderProposals();
   }));
 }
 
@@ -156,25 +132,82 @@ function wireProp(card) {
 async function renderRuns() {
   const runs = await api('/runs');
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Runs</h2><div class="muted">Every task the chain processed. Output is always a draft PR you review.</div></div></div>
-    ${runs.length ? runs.map((r) => `<div class="run-row"><div><b>#${r.id}</b> ${esc(r.title)} <span class="muted">· ${esc(r.repo)}</span></div><div style="display:flex;gap:10px;align-items:center"><span class="muted">${usd(r.spent_usd)}</span><span class="chip state ${String(r.state).toLowerCase()}">${esc(r.state)}</span></div></div>`).join('') : '<div class="empty">No runs yet. Approve a proposal to start the first one.</div>'}`;
+    <div class="topbar"><div><h2>Runs</h2><div class="muted">Click a run to see every step, the diff, and the validations.</div></div></div>
+    ${runs.length ? runs.map((r) => `<div class="run-row" data-run="${r.id}"><div><b>#${r.id}</b> ${esc(r.title)} <span class="muted">· ${esc(r.repo)} · ${r.steps} steps</span></div>
+      <div style="display:flex;gap:10px;align-items:center"><span class="muted">${usd(r.spent_usd)}</span><span class="chip state ${String(r.state).toLowerCase()}">${esc(r.state)}</span></div></div>`).join('') : '<div class="empty">No runs yet. Approve a proposal and the engine will start one.</div>'}`;
+  $('#view').querySelectorAll('[data-run]').forEach((row) => row.addEventListener('click', () => { OPEN_RUN = row.dataset.run; renderRunDetail(OPEN_RUN); }));
+}
+
+const ROLE_LABEL = { triage: 'Triage', spec: 'Spec', tdd: 'TDD (failing tests)', implement: 'Implement', review: 'Code review', challenger: 'Challenger', redteam: 'Red team', security: 'Security', final: 'Final review', validator: 'Validator' };
+
+async function renderRunDetail(id) {
+  const d = await api('/runs/' + id);
+  if (!d.task) { OPEN_RUN = null; return renderRuns(); }
+  const t = d.task;
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2><a class="back" data-back>Runs</a> / #${t.id} ${esc(t.title)}</h2>
+      <div class="muted">${esc(t.repo)} · ${d.steps.length} steps · ${usd(t.spent_usd)} · <span class="chip state ${String(t.state).toLowerCase()}">${esc(t.state)}</span></div></div></div>
+    <div class="timeline">${d.steps.length ? d.steps.map(renderStep).join('') : '<div class="empty">No steps recorded yet — the run is just starting. This refreshes live.</div>'}</div>
+    <div class="section-title">Steer this run</div>
+    <div class="card"><div class="comment-box"><textarea id="cmt" placeholder="Leave a note the agent takes into account on the next step (e.g. 'put more effort on edge cases', 'also cover the refund path')..."></textarea><button class="btn" id="cmt-send">Send</button></div>
+      ${(d.comments || []).map((c) => `<div class="cmt"><span class="muted">${esc((c.created_at || '').slice(0, 16).replace('T', ' '))}${c.consumed_at ? ' · taken into account' : ' · pending'}</span><div>${esc(c.body)}</div></div>`).join('')}</div>`;
+  $('#view').querySelector('[data-back]').addEventListener('click', () => { OPEN_RUN = null; renderRuns(); });
+  $('#view').querySelectorAll('.step .step-head').forEach((hd) => hd.addEventListener('click', () => hd.parentElement.classList.toggle('open')));
+  $('#cmt-send').addEventListener('click', async () => {
+    const body = $('#cmt').value.trim(); if (!body) return;
+    await api(`/runs/${id}/comment`, { method: 'POST', body: JSON.stringify({ body }) });
+    toast('Note sent'); renderRunDetail(id);
+  });
+}
+
+function renderStep(s, i) {
+  const ok = s.status === 'ok';
+  const cls = s.status === 'ok' ? 'ok' : s.status === 'bounced' ? 'bounced' : 'err';
+  return `<div class="step ${cls}">
+    <div class="step-head">
+      <div class="dot"></div>
+      <div class="step-title"><b>${esc(ROLE_LABEL[s.role] || s.role || s.phase)}</b> <span class="muted">${esc(s.model || '')}</span></div>
+      <div class="step-meta">${s.outcome ? `<span class="chip outcome ${cls}">${esc(s.outcome)}</span>` : ''}<span class="muted">${usd(s.costUsd)}</span></div>
+    </div>
+    <div class="step-body">
+      ${s.gates && s.gates.length ? `<div class="gates">${s.gates.map((g) => `<span class="gchip ${g.status}">${g.status === 'pass' ? '✓' : '✕'} ${esc(g.gate)}</span>`).join('')}</div>` : ''}
+      ${renderAgentText(s.text)}
+      ${s.diff ? `<div class="diff-wrap"><div class="diff-title">Diff</div><pre class="diff">${renderDiff(s.diff)}</pre></div>` : ''}
+      ${s.note && !s.gates?.length ? `<div class="muted">${esc(s.note)}</div>` : ''}
+    </div></div>`;
+}
+
+function renderAgentText(text) {
+  if (!text) return '';
+  let obj = null; try { obj = JSON.parse(text); } catch {}
+  if (obj && typeof obj === 'object') {
+    return '<div class="agent-out">' + Object.entries(obj).map(([k, v]) => {
+      if (Array.isArray(v)) return v.length ? `<div class="ao-k">${esc(k)}</div><ul>${v.map((x) => `<li>${esc(typeof x === 'string' ? x : JSON.stringify(x))}</li>`).join('')}</ul>` : '';
+      if (v == null || v === '') return '';
+      return `<div class="ao-k">${esc(k)}</div><div class="ao-v">${esc(typeof v === 'string' ? v : JSON.stringify(v))}</div>`;
+    }).join('') + '</div>';
+  }
+  return `<div class="agent-out"><pre class="plain">${esc(text)}</pre></div>`;
+}
+
+function renderDiff(diff) {
+  return esc(diff).split('\n').map((l) => {
+    if (l.startsWith('diff --git') || l.startsWith('index ') || l.startsWith('--- ') || l.startsWith('+++ ')) return `<span class="dh">${l}</span>`;
+    if (l.startsWith('@@')) return `<span class="dhunk">${l}</span>`;
+    if (l.startsWith('+')) return `<span class="dadd">${l}</span>`;
+    if (l.startsWith('-')) return `<span class="ddel">${l}</span>`;
+    return `<span>${l}</span>`;
+  }).join('\n');
 }
 
 /* ---------- Live ---------- */
 function startStream() {
   if (es) es.close();
   es = new EventSource('/api/stream');
-  es.onmessage = (ev) => {
-    if (VIEW !== 'overview') return;
-    try {
-      const d = JSON.parse(ev.data);
-      const kp = $('#kpi-prop'); if (kp && d.proposals) kp.textContent = d.proposals.proposed || 0;
-    } catch {}
-  };
+  es.onmessage = () => { if (OPEN_RUN) renderRunDetail(OPEN_RUN); else if (VIEW === 'overview') renderOverview(); else if (VIEW === 'runs') renderRuns(); };
 }
 
 async function boot() {
-  try { const me = await api('/me'); if (me.authed) renderShell(); else renderLogin(); }
-  catch { renderLogin(); }
+  try { const me = await api('/me'); if (me.authed) renderShell(); else renderLogin(); } catch { renderLogin(); }
 }
 boot();

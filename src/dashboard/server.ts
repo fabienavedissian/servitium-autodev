@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { openDb } from '../db/db';
 import { loadConfig } from '../config';
 import { createLogger } from '../log';
-import { tasksByState, costSince, recentRuns, runDetail } from './queries';
+import { tasksByState, costSince, recentRuns, runDetail, addComment } from './queries';
 import { listProposals, decideProposal, proposalCounts, type ProposalStatus } from './proposals';
 
 const cfg = loadConfig();
@@ -121,6 +121,14 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/runs') return send(res, 200, recentRuns(db));
     const runMatch = /^\/api\/runs\/(\d+)$/.exec(p);
     if (runMatch) return send(res, 200, runDetail(db, Number(runMatch[1])));
+    const commentMatch = /^\/api\/runs\/(\d+)\/comment$/.exec(p);
+    if (commentMatch && req.method === 'POST') {
+      const body = await readBody(req);
+      const text = String(body.body ?? '').slice(0, 4000);
+      if (!text.trim()) return send(res, 400, { error: 'empty comment' });
+      addComment(db, Number(commentMatch[1]), text, new Date().toISOString());
+      return send(res, 200, { ok: true });
+    }
     const decideMatch = /^\/api\/proposals\/(\d+)\/decide$/.exec(p);
     if (decideMatch && req.method === 'POST') {
       const body = await readBody(req);
