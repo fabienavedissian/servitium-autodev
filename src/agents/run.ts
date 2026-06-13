@@ -44,8 +44,13 @@ export async function runRole(query: QueryFn, input: RunRoleInput): Promise<RunR
   if (input.maxBudgetUsd !== undefined) options.maxBudgetUsd = input.maxBudgetUsd;
 
   let result: Record<string, unknown> | null = null;
-  for await (const msg of query({ prompt: input.prompt, options })) {
-    if (msg && msg.type === 'result') result = msg;
+  try {
+    for await (const msg of query({ prompt: input.prompt, options })) {
+      if (msg && msg.type === 'result') result = msg;
+    }
+  } catch (e) {
+    // maxTurns / API errors surface as a thrown result; degrade gracefully so the FSM bounces.
+    return { text: '', subtype: 'error', usage: null, totalCostUsd: null, raw: { error: String(e).slice(0, 500) } };
   }
   if (!result) return { text: '', subtype: 'no_result', usage: null, totalCostUsd: null, raw: null };
 

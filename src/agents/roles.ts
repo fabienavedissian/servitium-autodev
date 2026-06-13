@@ -28,16 +28,16 @@ export const MODELS = {
 
 // Cost spine: Sonnet default, Opus only for the two adversarial roles, Haiku for triage.
 export const ROLES: Record<RoleName, RoleConfig> = {
-  triage: { name: 'triage', model: MODELS.haiku, effort: 'low', maxTurns: 3 },
-  spec: { name: 'spec', model: MODELS.sonnet, effort: 'medium', maxTurns: 6 },
-  tdd: { name: 'tdd', model: MODELS.sonnet, effort: 'medium', maxTurns: 10 },
-  implement: { name: 'implement', model: MODELS.sonnet, effort: 'high', maxTurns: 14 },
-  review: { name: 'review', model: MODELS.sonnet, effort: 'high', maxTurns: 6 },
-  challenger: { name: 'challenger', model: MODELS.opus, effort: 'xhigh', maxTurns: 10 },
-  redteam: { name: 'redteam', model: MODELS.opus, effort: 'high', maxTurns: 10 },
-  security: { name: 'security', model: MODELS.sonnet, effort: 'high', maxTurns: 6 },
-  final: { name: 'final', model: MODELS.sonnet, effort: 'high', maxTurns: 6 },
-  validator: { name: 'validator', model: MODELS.sonnet, effort: 'medium', maxTurns: 6 },
+  triage: { name: 'triage', model: MODELS.haiku, effort: 'low', maxTurns: 5 },
+  spec: { name: 'spec', model: MODELS.sonnet, effort: 'medium', maxTurns: 12 },
+  tdd: { name: 'tdd', model: MODELS.sonnet, effort: 'medium', maxTurns: 30 },
+  implement: { name: 'implement', model: MODELS.sonnet, effort: 'high', maxTurns: 45 },
+  review: { name: 'review', model: MODELS.sonnet, effort: 'high', maxTurns: 14 },
+  challenger: { name: 'challenger', model: MODELS.opus, effort: 'xhigh', maxTurns: 22 },
+  redteam: { name: 'redteam', model: MODELS.opus, effort: 'high', maxTurns: 22 },
+  security: { name: 'security', model: MODELS.sonnet, effort: 'high', maxTurns: 16 },
+  final: { name: 'final', model: MODELS.sonnet, effort: 'high', maxTurns: 14 },
+  validator: { name: 'validator', model: MODELS.sonnet, effort: 'medium', maxTurns: 10 },
 };
 
 // Implement escalates to Opus only when cost-justified: a `hard` task or repeated Sonnet failures.
