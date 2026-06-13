@@ -1,0 +1,242 @@
+import type { DB } from '../db/db';
+import type { Config } from '../config';
+import type { Ledger } from '../cost/ledger';
+import { runRole, type QueryFn } from '../agents/run';
+import { parseJsonLoose } from '../util/json';
+import { SIE_ROLES, type SieRoleName } from './roles';
+import { anglesForDay, type SenseAngle } from './sensing/angles';
+import { fetchBatch } from './sensing/fetch';
+import { dedupSignals, signalDedupKey, domainOf } from './sensing/dedup';
+import { scoreOpportunity, tierForScore, DEFAULT_WEIGHTS } from './score/rubric';
+import * as repos from './repos';
+import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPrompt, promptsmithPrompt } from './prompts';
+import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility } from './brief/maxPromptTemplate';
+
+export interface VeilleDeps {
+  db: DB;
+  query: QueryFn;
+  ledger: Ledger;
+  cfg: Config;
+  log?: (m: string, d?: unknown) => void;
+  onStage?: (stage: string, detail: string) => void;
+  now?: Date;
+}
+
+export interface VeilleSummary {
+  runId: number | null;
+  status: string;
+  signalsNew: number;
+  opportunities: number;
+  briefs: number;
+  costUsd: number;
+  note?: string;
+}
+
+interface RunState {
+  spentUsd: number;
+}
+
+// Fill {{slots}} from a tiny grounding map (Phase 0: static; Phase 1 reads the KB).
+const SLOTS: Record<string, string> = {
+  games: 'Conan Exiles, Soulmask',
+  competitors: 'game server management panel, BattleMetrics, gamepanel',
+  candidateGames: 'Rust, Palworld, Enshrouded, V Rising, ARK',
+  year: '2026',
+};
+const fillQuery = (t: string): string => t.replace(/\{\{(\w+)\}\}/g, (_, k) => SLOTS[k] ?? '');
+
+async function runSie(
+  deps: VeilleDeps,
+  rs: RunState,
+  role: SieRoleName,
+  systemPrompt: string,
+  opts: { allowedTools?: string[]; maxBudgetUsd?: number } = {},
+): Promise<{ text: string; costUsd: number; subtype: string }> {
+  const cfgRole = { name: role, ...SIE_ROLES[role] };
+  const res = await runRole(deps.query, {
+    role: cfgRole,
+    prompt: `Perform your role. Output ONLY the specified JSON.`,
+    systemPrompt,
+    settingSources: [],
+    allowedTools: opts.allowedTools,
+    maxBudgetUsd: opts.maxBudgetUsd ?? 1.5,
+  });
+  const cost = res.totalCostUsd ?? 0;
+  deps.ledger.record(cfgRole.model, { input_tokens: 0, output_tokens: 0 }, { costUsd: cost, scope: 'intel' });
+  rs.spentUsd += cost;
+  return { text: res.text, costUsd: cost, subtype: res.subtype };
+}
+
+// The daily veille. Deterministic stage order; LLM only fills a step; code computes scores/ranks.
+export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
+  const now = deps.now ?? new Date();
+  const at = now.toISOString();
+  const runDate = at.slice(0, 10);
+  const rs: RunState = { spentUsd: 0 };
+  const log = deps.log ?? (() => {});
+  const stage = (s: string, d = '') => deps.onStage?.(s, d);
+
+  // Intel monthly/daily sub-cap kill-switch (the ~50 EUR guarantee).
+  const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
+  if (cap.paused) return { runId: null, status: 'skipped-capped', signalsNew: 0, opportunities: 0, briefs: 0, costUsd: 0, note: cap.reason };
+
+  const runId = repos.startRun(deps.db, runDate, at);
+  if (runId === null) return { runId: null, status: 'already-ran-today', signalsNew: 0, opportunities: 0, briefs: 0, costUsd: 0 };
+
+  const overRunBudget = () => rs.spentUsd >= deps.cfg.SIE_RUN_BUDGET_USD;
+  let signalIds: { id: number; angle: string; title: string; summary: string }[] = [];
+  let queriesRun = 0;
+  let hitsFetched = 0;
+
+  try {
+    // PLAN (code) -------------------------------------------------------------
+    const angles = anglesForDay(now.getUTCDay());
+    stage('PLAN', `${angles.length} angles today`);
+    const known = repos.knownSignalKeys(deps.db, daysAgoIso(now, 30));
+
+    // HARVEST + FETCH + EXTRACT + DEDUP, per angle ----------------------------
+    for (const angle of angles) {
+      if (overRunBudget()) {
+        log('budget abort before harvest', { angle: angle.key, spent: rs.spentUsd });
+        break;
+      }
+      const queries = angle.queryTemplates.map(fillQuery);
+      queriesRun += queries.length;
+      stage('HARVEST', angle.label);
+      const h = await runSie(deps, rs, 'harvest', harvestPrompt(angle.key, angle.label, queries), { allowedTools: ['WebSearch'] });
+      const hits = (parseJsonLoose<{ hits?: { title: string; url: string; snippet?: string }[] }>(h.text)?.hits ?? []).slice(0, 12);
+      if (hits.length === 0) continue;
+
+      stage('FETCH', `${hits.length} pages — ${angle.label}`);
+      const pages = await fetchBatch(hits.map((x) => x.url));
+      const fetched = pages.filter((p) => p.ok && p.text.length > 200);
+      hitsFetched += fetched.length;
+
+      // EXTRACT (only pages we actually fetched; fall back to the search snippet otherwise)
+      let extracted: { index: number; title: string; summary: string; sourceType?: string; claimedDate?: string; relevant?: boolean }[] = [];
+      if (fetched.length) {
+        stage('EXTRACT', angle.label);
+        const e = await runSie(deps, rs, 'extract', extractPrompt(angle.key, fetched.map((p) => ({ url: p.url, text: p.text }))));
+        extracted = parseJsonLoose<{ signals?: typeof extracted }>(e.text)?.signals ?? [];
+      }
+
+      // Merge extracted onto their source hit (by fetched-page index), keep relevant only.
+      const candidates = extracted
+        .filter((x) => x.relevant !== false)
+        .map((x) => {
+          const page = fetched[x.index];
+          const hit = page ? hits.find((hh) => hh.url === page.url) : undefined;
+          const url = page?.url ?? hit?.url;
+          return { angle: angle.key, title: x.title || hit?.title || '(untitled)', summary: x.summary, sourceType: x.sourceType, claimedDate: x.claimedDate, url };
+        });
+
+      const { fresh, seen } = dedupSignals(candidates, known);
+      for (const s of seen) repos.bumpSeenSignal(deps.db, s.dedupKey, at);
+      for (const s of fresh) {
+        known.add(s.dedupKey);
+        const id = repos.insertSignal(
+          deps.db,
+          { runId, angle: s.angle, title: s.title, summary: s.summary, dedupKey: s.dedupKey, url: s.url, domain: s.url ? domainOf(s.url) : undefined, sourceType: s.sourceType, claimedDate: s.claimedDate, seenBefore: false },
+          at,
+        );
+        signalIds.push({ id, angle: s.angle, title: s.title, summary: s.summary ?? '' });
+      }
+    }
+
+    // IDEATE (Sonnet, 1 call) -------------------------------------------------
+    let opportunities = 0;
+    let briefs = 0;
+    if (signalIds.length && !overRunBudget()) {
+      stage('IDEATE', `${signalIds.length} fresh signals`);
+      const openTitles = (deps.db.prepare(`SELECT title FROM opportunity WHERE status IN ('proposed','greenlit','accepted')`).all() as { title: string }[]).map((r) => r.title);
+      const i = await runSie(deps, rs, 'ideator', ideatePrompt(signalIds, openTitles));
+      const cand = parseJsonLoose<{ opportunities?: IdeaOpp[] }>(i.text)?.opportunities ?? [];
+
+      // SCORE each (Sonnet) -> code computes score -> upsert + tier --------------
+      for (const c of cand) {
+        if (overRunBudget()) break;
+        const evList = (c.evidence ?? []).map((id) => `[signal:${id}]`).join(' ') || '(none cited)';
+        stage('SCORE', c.title);
+        const sres = await runSie(deps, rs, 'scorer', scorerPrompt({ title: c.title, thesis: c.thesis ?? '', whyNow: c.whyNow ?? '', fit: c.fit ?? '' }, evList));
+        const parsed = parseJsonLoose<{ features?: Record<string, number>; justifications?: Record<string, string>; evidenceCount?: Record<string, number> }>(sres.text) ?? {};
+        const featureJson = JSON.stringify({ features: parsed.features ?? {}, evidenceCount: parsed.evidenceCount ?? {}, justifications: parsed.justifications ?? {} });
+        const scoreRes = scoreOpportunity({ features: parsed.features ?? {}, evidenceCount: parsed.evidenceCount ?? {}, signalCount: (c.evidence ?? []).length || 1, daysSinceLastSignal: 0 });
+        repos.upsertOpportunity(
+          deps.db,
+          { kind: c.kind ?? 'feature', angle: signalIds.find((s) => (c.evidence ?? []).includes(s.id))?.angle ?? 'product', dedupKey: c.dedupKey || `idea:${slug(c.title)}`, title: c.title, thesis: c.thesis, whyNow: c.whyNow, fit: c.fit, featureJson, sourcesJson: JSON.stringify(c.sources ?? []), signalCount: (c.evidence ?? []).length || 1, lastSignalAt: at },
+          scoreRes.score,
+          DEFAULT_WEIGHTS.version,
+          at,
+        );
+        opportunities += 1;
+      }
+      repos.rerankShown(deps.db);
+
+      // BRIEF top flagship (Opus, gated) ---------------------------------------
+      briefs = await briefTopFlagships(deps, rs, at);
+    }
+
+    const status = overRunBudget() ? 'partial-budget' : 'done';
+    appendLogbook(deps.db, 'veille', `ran veille: ${signalIds.length} new signals, ${opportunities} opportunities, ${briefs} briefs ($${rs.spentUsd.toFixed(2)})`, at);
+    repos.finishRun(deps.db, runId, status, { cost_usd: rs.spentUsd, opportunities, briefs, signals_new: signalIds.length, angles_run: angles.length, queries_run: queriesRun, hits_fetched: hitsFetched }, at);
+    return { runId, status, signalsNew: signalIds.length, opportunities, briefs, costUsd: rs.spentUsd };
+  } catch (e) {
+    repos.finishRun(deps.db, runId, 'error', { cost_usd: rs.spentUsd, signals_new: signalIds.length }, new Date().toISOString(), String(e).slice(0, 300));
+    return { runId, status: 'error', signalsNew: signalIds.length, opportunities: 0, briefs: 0, costUsd: rs.spentUsd, note: String(e).slice(0, 300) };
+  }
+}
+
+interface IdeaOpp {
+  kind?: string;
+  title: string;
+  thesis?: string;
+  whyNow?: string;
+  fit?: string;
+  dedupKey?: string;
+  evidence?: number[];
+  sources?: { label: string; url: string }[];
+}
+
+// Generate the deep concrete brief for up to SIE_BRIEF_TOP_N flagship opportunities that lack one.
+async function briefTopFlagships(deps: VeilleDeps, rs: RunState, at: string): Promise<number> {
+  const topN = deps.cfg.SIE_BRIEF_TOP_N;
+  if (topN <= 0) return 0;
+  const rows = deps.db
+    .prepare(`SELECT id, title, thesis, why_now, fit, sources_json, score FROM opportunity WHERE flagship=1 AND brief_md IS NULL AND status='proposed' ORDER BY score DESC LIMIT ?`)
+    .all(topN) as { id: number; title: string; thesis: string; why_now: string; fit: string; sources_json: string; score: number }[];
+  let n = 0;
+  for (const r of rows) {
+    const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, deps.now ?? new Date());
+    if (cap.paused || rs.spentUsd >= deps.cfg.SIE_RUN_BUDGET_USD) break;
+    const sources = (() => {
+      try {
+        return JSON.parse(r.sources_json || '[]') as { label: string; url: string }[];
+      } catch {
+        return [];
+      }
+    })();
+    deps.onStage?.('BRIEF', r.title);
+    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' ')), {
+      allowedTools: ['WebSearch', 'WebFetch'],
+      maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
+    });
+    const f = parseJsonLoose<Feasibility>(fres.text);
+    if (!f || !f.recommendation) continue;
+    const opp = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
+    const briefMd = renderBriefMd(opp, f, r.score);
+    const maxPrompt = renderMaxPrompt(opp, f, r.score);
+    const deeperPrompt = renderDeeperPrompt(opp, f);
+    deps.db.prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?').run(briefMd, maxPrompt, deeperPrompt, fres.costUsd, at, r.id);
+    n += 1;
+  }
+  return n;
+}
+
+export function appendLogbook(db: DB, kind: string, summary: string, at: string, sourceRef?: string, source: 'system' | 'owner' = 'system'): void {
+  db.prepare(`INSERT INTO logbook (kind, summary, source_ref, source, dated_on, created_at) VALUES (?,?,?,?,?,?)`).run(kind, summary, sourceRef ?? null, source, at.slice(0, 10), at);
+}
+
+const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+function daysAgoIso(now: Date, days: number): string {
+  return new Date(now.getTime() - days * 86_400_000).toISOString();
+}

@@ -1,10 +1,11 @@
 import type { Usage } from '../cost/prices';
-import type { RoleConfig } from './roles';
+import type { EffortLevel } from './roles';
 
 export type QueryFn = (args: { prompt: string; options?: Record<string, unknown> }) => AsyncIterable<Record<string, unknown>>;
 
+// Structural: any role-like config (AutoDev RoleConfig or SIE_ROLES entry). runRole only reads model/effort/maxTurns.
 export interface RunRoleInput {
-  role: RoleConfig;
+  role: { name?: string; model: string; effort: EffortLevel; maxTurns: number };
   prompt: string;
   systemPrompt: string | string[];
   cwd?: string;

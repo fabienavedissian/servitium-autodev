@@ -200,6 +200,19 @@ CREATE TABLE IF NOT EXISTS intel_decision (
 );
 CREATE INDEX IF NOT EXISTS idx_intel_decision_opp ON intel_decision(opportunity_id);
 
+-- The carnet de bord. Append-only, dated, typed. LOGBOOK.md is RENDERED from this.
+CREATE TABLE IF NOT EXISTS logbook (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,                   -- did|want|can|decided|spent|veille
+  area TEXT,
+  summary TEXT NOT NULL,                -- one line, no emoji/em-dash
+  source_ref TEXT,                      -- 'opportunity:9'|'brief:7'
+  source TEXT NOT NULL DEFAULT 'system', -- system|owner
+  dated_on TEXT NOT NULL,               -- YYYY-MM-DD grouping key
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_logbook_date ON logbook(dated_on);
+
 CREATE INDEX IF NOT EXISTS idx_step_task ON step(task_id);
 CREATE INDEX IF NOT EXISTS idx_gate_task ON gate_result(task_id);
 CREATE INDEX IF NOT EXISTS idx_spend_created ON spend_ledger(created_at);

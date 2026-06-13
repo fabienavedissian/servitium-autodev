@@ -11,7 +11,7 @@ export interface TaskContext {
   sensitive?: boolean;
 }
 
-const CONVENTIONS = [
+export const CONVENTIONS = [
   'Servitium conventions you MUST follow:',
   '- TypeScript. The API is NestJS; every API change ships a green mongodb-memory-server integration test.',
   '- Comments: extremely sparse, English only, one short line, only when the WHY is non-obvious. Often zero.',
