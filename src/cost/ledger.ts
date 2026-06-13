@@ -20,14 +20,18 @@ export class Ledger {
 
   // Prefer the SDK's authoritative total_cost_usd (opts.costUsd) when available; fall back to the
   // local estimate from the price map (which can differ on cache TTL pricing).
-  record(model: string, usage: Usage, opts: { taskId?: number; stepId?: number; at?: string; costUsd?: number } = {}): number {
+  record(
+    model: string,
+    usage: Usage,
+    opts: { taskId?: number; stepId?: number; at?: string; costUsd?: number; scope?: 'build' | 'intel' } = {},
+  ): number {
     const cost = opts.costUsd ?? costUsd(model, usage);
     const at = opts.at ?? new Date().toISOString();
     this.db
       .prepare(
         `INSERT INTO spend_ledger
-         (task_id, step_id, model, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, cost_usd, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
+         (task_id, step_id, model, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, cost_usd, scope, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         opts.taskId ?? null,
@@ -38,15 +42,18 @@ export class Ledger {
         usage.cache_read_input_tokens ?? 0,
         usage.cache_creation_input_tokens ?? 0,
         cost,
+        opts.scope ?? 'build',
         at,
       );
     return cost;
   }
 
-  sumSince(iso: string): number {
-    const row = this.db
-      .prepare('SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE created_at >= ?')
-      .get(iso) as { s: number };
+  sumSince(iso: string, scope?: 'build' | 'intel'): number {
+    const row = (
+      scope
+        ? this.db.prepare('SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE created_at >= ? AND scope = ?').get(iso, scope)
+        : this.db.prepare('SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE created_at >= ?').get(iso)
+    ) as { s: number };
     return row.s;
   }
 
@@ -63,6 +70,15 @@ export class Ledger {
     const monthlyUsd = this.monthlyUsd(now);
     if (monthlyUsd >= caps.monthlyUsd) return { dailyUsd, monthlyUsd, paused: true, reason: 'monthly cap reached' };
     if (dailyUsd >= caps.dailyUsd) return { dailyUsd, monthlyUsd, paused: true, reason: 'daily cap reached' };
+    return { dailyUsd, monthlyUsd, paused: false };
+  }
+
+  // Per-scope spend status (the intel lane: ~50 EUR/mo, can't starve or be starved by the build lane).
+  subStatus(scope: 'build' | 'intel', caps: Caps, now: Date = new Date()): SpendStatus {
+    const dailyUsd = this.sumSince(startOfDayIso(now), scope);
+    const monthlyUsd = this.sumSince(startOfMonthIso(now), scope);
+    if (monthlyUsd >= caps.monthlyUsd) return { dailyUsd, monthlyUsd, paused: true, reason: `${scope} monthly cap reached` };
+    if (dailyUsd >= caps.dailyUsd) return { dailyUsd, monthlyUsd, paused: true, reason: `${scope} daily cap reached` };
     return { dailyUsd, monthlyUsd, paused: false };
   }
 }

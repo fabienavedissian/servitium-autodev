@@ -19,6 +19,9 @@ function migrate(db: DB): void {
   }
   // Additive, idempotent: columns added after the initial schema land on already-created DBs.
   ensureColumn(db, 'task', 'detail', 'TEXT');
+  // SIE budget scope: existing rows default to the build lane; the intel lane is opt-in per record().
+  ensureColumn(db, 'spend_ledger', 'scope', "TEXT NOT NULL DEFAULT 'build'");
+  db.exec('CREATE INDEX IF NOT EXISTS idx_spend_scope ON spend_ledger(scope, created_at)');
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {

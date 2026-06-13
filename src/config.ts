@@ -20,6 +20,16 @@ const ConfigSchema = z.object({
   // Cadence.
   POLL_INTERVAL_MIN: z.coerce.number().int().positive().default(15),
 
+  // Intelligence Engine (SIE): daily veille -> scored opportunities -> briefs. Separate budget scope
+  // so the ~50 EUR intel lane can neither starve nor be starved by the build lane.
+  SIE_ENABLED: z.coerce.boolean().default(true),
+  SIE_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(5),
+  SIE_MONTHLY_CAP_USD: z.coerce.number().positive().default(45), // ~50 EUR, headroom for Opus variance
+  SIE_DAILY_CAP_USD: z.coerce.number().positive().default(3),
+  SIE_RUN_BUDGET_USD: z.coerce.number().positive().default(2.2), // per-run hard abort (skips brief first)
+  SIE_BRIEF_TOP_N: z.coerce.number().int().nonnegative().default(1),
+  PER_BRIEF_BUDGET_USD: z.coerce.number().positive().default(1.2),
+
   // Paths.
   DB_PATH: z.string().default('./autodev.db'),
   WORK_ROOT: z.string().default('./.work'),
