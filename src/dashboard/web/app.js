@@ -60,7 +60,7 @@ function renderShell() {
   shell.querySelectorAll('[data-v]').forEach((a) => a.addEventListener('click', () => { VIEW = a.dataset.v; OPEN_RUN = null; route(); }));
   shell.querySelector('[data-logout]').addEventListener('click', async () => { await fetch('/api/logout'); renderLogin(); });
   $('#app').appendChild(shell);
-  route(); startStream();
+  route(); connectWs();
 }
 function route() {
   document.querySelectorAll('.nav a[data-v]').forEach((a) => a.classList.toggle('active', a.dataset.v === VIEW));
@@ -141,13 +141,14 @@ async function renderRuns() {
 const ROLE_LABEL = { triage: 'Triage', spec: 'Spec', tdd: 'TDD (failing tests)', implement: 'Implement', review: 'Code review', challenger: 'Challenger', redteam: 'Red team', security: 'Security', final: 'Final review', validator: 'Validator' };
 
 async function renderRunDetail(id) {
+  OPEN_RUN = id;
   const d = await api('/runs/' + id);
   if (!d.task) { OPEN_RUN = null; return renderRuns(); }
   const t = d.task;
   $('#view').innerHTML = `
     <div class="topbar"><div><h2><a class="back" data-back>Runs</a> / #${t.id} ${esc(t.title)}</h2>
-      <div class="muted">${esc(t.repo)} · ${d.steps.length} steps · ${usd(t.spent_usd)} · <span class="chip state ${String(t.state).toLowerCase()}">${esc(t.state)}</span></div></div></div>
-    <div class="timeline">${d.steps.length ? d.steps.map(renderStep).join('') : '<div class="empty">No steps recorded yet — the run is just starting. This refreshes live.</div>'}</div>
+      <div class="muted" id="run-sub">${esc(t.repo)} · ${d.steps.length} steps · ${usd(t.spent_usd)} · <span class="chip state ${String(t.state).toLowerCase()}">${esc(t.state)}</span></div></div><span class="live-dot" title="live"></span></div>
+    <div class="timeline">${d.steps.length ? d.steps.map(renderStep).join('') : '<div class="empty">Run starting — steps will stream in here live.</div>'}</div>
     <div class="section-title">Steer this run</div>
     <div class="card"><div class="comment-box"><textarea id="cmt" placeholder="Leave a note the agent takes into account on the next step (e.g. 'put more effort on edge cases', 'also cover the refund path')..."></textarea><button class="btn" id="cmt-send">Send</button></div>
       ${(d.comments || []).map((c) => `<div class="cmt"><span class="muted">${esc((c.created_at || '').slice(0, 16).replace('T', ' '))}${c.consumed_at ? ' · taken into account' : ' · pending'}</span><div>${esc(c.body)}</div></div>`).join('')}</div>`;
@@ -158,6 +159,7 @@ async function renderRunDetail(id) {
     await api(`/runs/${id}/comment`, { method: 'POST', body: JSON.stringify({ body }) });
     toast('Note sent'); renderRunDetail(id);
   });
+  RENDERED_STEPS = d.steps.length;
 }
 
 function renderStep(s, i) {
@@ -200,11 +202,38 @@ function renderDiff(diff) {
   }).join('\n');
 }
 
-/* ---------- Live ---------- */
-function startStream() {
-  if (es) es.close();
-  es = new EventSource('/api/stream');
-  es.onmessage = () => { if (OPEN_RUN) renderRunDetail(OPEN_RUN); else if (VIEW === 'overview') renderOverview(); else if (VIEW === 'runs') renderRuns(); };
+/* ---------- Live (WebSocket, in-place updates) ---------- */
+let ws = null;
+let RENDERED_STEPS = 0;
+function connectWs() {
+  try { if (ws) ws.close(); } catch {}
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (ev) => { try { applyChanged(JSON.parse(ev.data)); } catch {} };
+  ws.onclose = () => setTimeout(connectWs, 2000);
+}
+function applyChanged(msg) {
+  if (msg.type !== 'changed') return;
+  if (OPEN_RUN) return updateRunDetailLive();
+  if (VIEW === 'overview') renderOverview();
+  else if (VIEW === 'runs') renderRuns();
+}
+async function updateRunDetailLive() {
+  const d = await api('/runs/' + OPEN_RUN);
+  if (!d.task) return;
+  const sub = $('#run-sub');
+  if (sub) sub.innerHTML = `${esc(d.task.repo)} · ${d.steps.length} steps · ${usd(d.task.spent_usd)} · <span class="chip state ${String(d.task.state).toLowerCase()}">${esc(d.task.state)}</span>`;
+  const tl = $('.timeline');
+  if (tl && d.steps.length > RENDERED_STEPS) {
+    if (RENDERED_STEPS === 0) tl.innerHTML = '';
+    for (let i = RENDERED_STEPS; i < d.steps.length; i++) {
+      const node = h(renderStep(d.steps[i]));
+      node.querySelector('.step-head').addEventListener('click', () => node.classList.toggle('open'));
+      node.classList.add('appear');
+      tl.appendChild(node);
+    }
+    RENDERED_STEPS = d.steps.length;
+  }
 }
 
 async function boot() {

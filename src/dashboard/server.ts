@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { openDb } from '../db/db';
 import { loadConfig } from '../config';
 import { createLogger } from '../log';
@@ -152,5 +153,53 @@ const server = http.createServer(async (req, res) => {
 
   return serveStatic(res, p);
 });
+
+// WebSocket: push to clients the instant the DB changes (no client polling). Auth via the session cookie.
+const wss = new WebSocketServer({ noServer: true });
+const clients = new Set<WebSocket>();
+server.on('upgrade', (req, socket, head) => {
+  const u = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+  if (u.pathname !== '/ws' || !validSession(cookie(req, 'autodev_sess'))) {
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    clients.add(ws);
+    ws.on('close', () => clients.delete(ws));
+    ws.on('error', () => clients.delete(ws));
+  });
+});
+function broadcast(obj: unknown): void {
+  const s = JSON.stringify(obj);
+  for (const c of clients) {
+    try {
+      if (c.readyState === 1) c.send(s);
+    } catch {
+      /* drop */
+    }
+  }
+}
+
+let lastFp = '';
+setInterval(() => {
+  if (clients.size === 0) return;
+  const now = new Date();
+  const startDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  const startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const overview = {
+    tasksByState: tasksByState(db),
+    proposals: proposalCounts(db),
+    costTodayUsd: costSince(db, startDay),
+    costMonthUsd: costSince(db, startMonth),
+    caps: { dailyUsd: cfg.DAILY_SPEND_CAP_USD, monthlyUsd: cfg.MONTHLY_SPEND_CAP_USD },
+    repos: cfg.TARGET_REPOS,
+  };
+  const runs = recentRuns(db, 50);
+  const maxStep = (db.prepare('SELECT COALESCE(MAX(id),0) AS m FROM step').get() as { m: number }).m;
+  const fp = JSON.stringify([overview.tasksByState, overview.proposals, overview.costTodayUsd, maxStep, runs.map((r) => [r.id, r.state, r.steps, r.spent_usd])]);
+  if (fp === lastFp) return;
+  lastFp = fp;
+  broadcast({ type: 'changed', overview, runs });
+}, 1000);
 
 server.listen(PORT, () => log.info({ port: PORT }, 'AutoDev dashboard listening'));
