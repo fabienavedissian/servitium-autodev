@@ -254,8 +254,8 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
   const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
-    .prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?')
-    .run(briefMd, maxPrompt, deeperPrompt, fres.costUsd, at, r.id);
+    .prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, recommendation=?, unknowns_count=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?')
+    .run(briefMd, maxPrompt, deeperPrompt, f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
   return true;
 }
 

@@ -27,6 +27,9 @@ function migrate(db: DB): void {
   // Opportunity origin: web veille vs a code-analysis pass over the repos.
   ensureColumn(db, 'opportunity', 'source_kind', "TEXT NOT NULL DEFAULT 'web'");
   ensureColumn(db, 'opportunity', 'repo', 'TEXT');
+  // Brief reliability: the recommendation + how many unknowns the brief still has to spike.
+  ensureColumn(db, 'opportunity', 'recommendation', 'TEXT');
+  ensureColumn(db, 'opportunity', 'unknowns_count', 'INTEGER');
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {

@@ -14,6 +14,18 @@ function parseFeatureJson(s: string): { features: Record<string, number>; eviden
   }
 }
 
+// How reliable is the generated Max prompt? Driven by the brief's recommendation, how many unknowns
+// it still has to spike, and how well-evidenced the opportunity is. Null until a brief exists.
+function promptQuality(rec: string | null, unknowns: number | null, evidenceCoverage: number): number | null {
+  if (!rec) return null;
+  let q = 90 - (unknowns ?? 0) * 12;
+  if (rec === 'incubate') q -= 8;
+  else if (rec === 'park') q -= 20;
+  else if (rec === 'drop') q -= 30;
+  q += Math.round((evidenceCoverage - 0.5) * 20);
+  return Math.max(25, Math.min(95, q));
+}
+
 function breakdown(featureJson: string, signalCount: number, lastSignalAt?: string) {
   const fj = parseFeatureJson(featureJson);
   const days = lastSignalAt ? Math.max(0, (Date.now() - Date.parse(lastSignalAt)) / 86_400_000) : 0;
@@ -38,13 +50,17 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
   if (status !== 'open' && status !== 'all') params.status = status;
   if (source === 'web' || source === 'code') params.source = source;
   const rows = db
-    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
+    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
     .all(params) as Record<string, unknown>[];
-  return rows.map((r) => ({
-    ...r,
-    sources: safeArr(r.sources_json),
-    breakdown: breakdown(String(r.feature_json ?? '{}'), Number(r.signal_count ?? 1), r.last_signal_at as string | undefined),
-  }));
+  return rows.map((r) => {
+    const bd = breakdown(String(r.feature_json ?? '{}'), Number(r.signal_count ?? 1), r.last_signal_at as string | undefined);
+    return {
+      ...r,
+      sources: safeArr(r.sources_json),
+      breakdown: bd,
+      promptQuality: promptQuality((r.recommendation as string) ?? null, r.unknowns_count as number | null, bd.evidenceCoverage),
+    };
+  });
 }
 
 export function opportunityDetail(db: DB, id: number): Record<string, unknown> | null {

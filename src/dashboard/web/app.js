@@ -163,10 +163,13 @@ function oppTitleHTML(o) {
 function oppMetaHTML(o) {
   return `<span class="chip src-${o.source_kind === 'code' ? 'code' : 'web'}">${o.source_kind === 'code' ? 'code' : 'web'}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span>${o.source_kind === 'code' && o.repo ? `<span class="chip">${esc(String(o.repo).replace('servitium-', ''))}</span>` : `<span class="chip">${esc(o.angle)}</span>`}${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}`;
 }
+function pqClass(q) { return q >= 75 ? 'good' : q >= 55 ? 'mid' : 'low'; }
 function briefActionsHTML(o) {
-  return o.has_brief
-    ? `<button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button>`
-    : `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus (~$0.7) → brief niveau RCON/.ini + prompt Max</span>`;
+  if (!o.has_brief) return `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus (~$0.7) → brief niveau RCON/.ini + prompt Max</span>`;
+  const pq = o.promptQuality != null
+    ? `<span class="pq ${pqClass(o.promptQuality)}" title="Fiabilité du prompt selon la profondeur d'investigation. Les inconnues se lèvent avec le prompt « approfondir » sur Max.">Qualité du prompt : ${o.promptQuality}%${o.unknowns_count ? ` · ${o.unknowns_count} inconnue${o.unknowns_count > 1 ? 's' : ''} à lever` : ''}</span>`
+    : '';
+  return `<button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button>${pq}`;
 }
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };
@@ -190,12 +193,12 @@ function oppCard(o) {
       <div class="brief-zone"></div>
       <div class="brief-actions">${briefActionsHTML(o)}</div>
       <div class="opp-actions">
-        <button class="btn ok" data-act="greenlight">Valider</button>
-        <button class="btn" data-act="accept">Accepter</button>
-        <button class="btn no" data-act="reject">Rejeter</button>
+        <button class="btn ok" data-act="greenlight">Valider — générer le brief</button>
+        <button class="btn no" data-act="reject">Pas intéressé</button>
         <span class="spacer-x"></span>
-        <button class="btn ghost" data-act="thumbs_up" title="signal pertinent">Pertinent</button>
-        <button class="btn ghost" data-act="thumbs_down" title="bruit">Bruit</button>
+        <span class="muted small">Bien ciblé&nbsp;?</span>
+        <button class="btn ghost" data-act="thumbs_up" title="la veille a visé juste">Utile</button>
+        <button class="btn ghost" data-act="thumbs_down" title="hors sujet / sans intérêt">Hors sujet</button>
       </div>
       <div class="comment-box small"><textarea data-comment placeholder="Oriente le moteur : pourquoi tu aimes / n’aimes pas (nourrit le classement futur)…"></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
     </div></div>`;
@@ -225,7 +228,7 @@ function wireOpp(card) {
   card.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
     const act = btn.dataset.act;
     await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: act }) });
-    const fr = { greenlight: 'validé', accept: 'accepté', reject: 'rejeté', thumbs_up: 'pertinent', thumbs_down: 'bruit' };
+    const fr = { greenlight: 'validé', reject: 'pas intéressé', thumbs_up: 'utile', thumbs_down: 'hors sujet' };
     toast('Enregistré : ' + (fr[act] || act));
     // Validating = "pursue it" -> also kick off the concrete brief if there is none yet.
     if (act === 'greenlight' && !card.querySelector('[data-copy]')) triggerBrief(id);

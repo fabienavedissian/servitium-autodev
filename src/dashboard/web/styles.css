@@ -234,3 +234,9 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .chip.src-web { color: #7fd1ff; border-color: #20435c; background: #122230; }
 .chip.security { color: #ff8fa3; border-color: #5a2733; background: #2a1820; }
 .chip.performance { color: #7fd1ff; } .chip.refactor { color: #c4b5fd; } .chip.lib-upgrade { color: var(--amber); } .chip.test-gap { color: #9be6c0; }
+
+.pq { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); }
+.pq.good { color: var(--green); border-color: #1d3a30; background: #0f201a; }
+.pq.mid { color: var(--amber); border-color: #3a2f1d; background: #221c11; }
+.pq.low { color: var(--red); border-color: #3a1f25; background: #201115; }
+.relevance-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
