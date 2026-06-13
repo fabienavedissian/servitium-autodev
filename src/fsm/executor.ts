@@ -9,19 +9,28 @@ import { tscGate } from '../gates/tsc';
 import { testsGreenGate, testsRedGate } from '../gates/jest';
 import { scopeDiffGate } from '../gates/scopeDiff';
 import type { GateContext } from '../gates/index';
+import type { SandboxRunner } from '../sandbox/run';
 
 export interface AgentOptions {
-  cwd?: string;
   allowedTools?: string[];
   mcpServers?: Record<string, unknown>;
   hooks?: Record<string, unknown>;
   perRoleBudgetUsd?: number;
 }
 
+// Mutable per-task state the executor fills as roles run (tdd -> specFiles, then frozen).
+export interface RunState {
+  specFiles: string[];
+  frozenTests: Record<string, string>;
+}
+
 export interface ExecutorDeps {
   query: QueryFn;
-  ctx: TaskContext; // mutated by the spec step for downstream roles
-  gateContext: () => GateContext;
+  ctx: TaskContext; // allowedPaths/spec/acceptance filled by the spec step
+  worktreeRoot: string;
+  runner: SandboxRunner;
+  baseRef: string;
+  runState: RunState;
   agent?: AgentOptions;
   onCost?: (usd: number, model: string) => void;
   attempt: { n: number };
@@ -43,8 +52,17 @@ const STATE_ROLE: Partial<Record<State, RoleName>> = {
 
 // Production executor: glues roles (runRole) + the deterministic gate matrix into the FSM.
 // Non-agent states resolve immediately; SPEC_APPROVAL auto-approves in local mode (a human gates it
-// via the dashboard in prod). Run live; parseRoleOutcome is unit-tested offline.
+// via the dashboard in prod). parseRoleOutcome is unit-tested; the assembly is integration-tested.
 export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskState) => Promise<ExecResult> {
+  const gateCtx = (): GateContext => ({
+    worktreeRoot: deps.worktreeRoot,
+    runner: deps.runner,
+    allowedPaths: deps.ctx.allowedPaths,
+    baseRef: deps.baseRef,
+    specFiles: deps.runState.specFiles,
+    frozenTests: deps.runState.frozenTests,
+  });
+
   return async (state: State): Promise<ExecResult> => {
     if (state === 'QUEUED' || state === 'SETUP' || state === 'PR_READY') return { outcome: 'ok' };
     if (state === 'SPEC_APPROVAL') return { outcome: 'approved' };
@@ -59,7 +77,7 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
       prompt: `Perform your role for the current task (FSM state ${state}).`,
       systemPrompt: systemPromptFor(role, deps.ctx),
       settingSources: [],
-      cwd: deps.agent?.cwd,
+      cwd: deps.worktreeRoot,
       allowedTools: deps.agent?.allowedTools,
       mcpServers: deps.agent?.mcpServers,
       hooks: deps.agent?.hooks,
@@ -76,15 +94,18 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
       if (typeof parsed.data.spec === 'string') deps.ctx.spec = parsed.data.spec;
       if (Array.isArray(parsed.data.acceptanceCriteria)) deps.ctx.acceptanceCriteria = parsed.data.acceptanceCriteria as string[];
     }
+    if (role === 'tdd' && Array.isArray(parsed.data.specFiles)) {
+      deps.runState.specFiles = parsed.data.specFiles as string[];
+    }
 
     // Gate-driven states: the deterministic matrix is authoritative, not the agent's self-report.
     if (state === 'TESTS_FIRST') {
-      const s = await runGates([testsRedGate], deps.gateContext());
+      const s = await runGates([testsRedGate], gateCtx());
       return { outcome: s.allPass ? 'red' : 'not-red', costUsd: cost, note: s.failed.join(',') };
     }
     if (state === 'IMPLEMENT') {
       deps.attempt.n += 1;
-      const s = await runGates([testsGreenGate, tscGate, scopeDiffGate], deps.gateContext());
+      const s = await runGates([testsGreenGate, tscGate, scopeDiffGate], gateCtx());
       return { outcome: s.allPass ? 'gates-pass' : 'gates-fail', costUsd: cost, note: s.failed.join(',') };
     }
 

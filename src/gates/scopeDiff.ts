@@ -1,19 +1,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { LocalRunner } from '../sandbox/run';
 import { globToRegExp } from '../git/scopeGuard';
 import { fail, pass, type Gate, type GateContext, type GateResult } from './index';
 
 // Post-hoc backstop to the PreToolUse scope guard: every changed or added path (tracked AND
 // untracked) must sit inside allowed_paths, and no new symlink may be introduced (mode 120000).
-const git = new LocalRunner();
-
+// Runs git through ctx.runner so it is sandboxed on the box (and fakeable in tests).
 export const scopeDiffGate = {
   name: 'scope-diff',
   run(ctx: GateContext): GateResult {
-    const raw = git.run('git', ['diff', '--raw', ctx.baseRef], { cwd: ctx.worktreeRoot });
+    const raw = ctx.runner.run('git', ['diff', '--raw', ctx.baseRef], { cwd: ctx.worktreeRoot });
     if (raw.exitCode !== 0) return fail('scope-diff', { error: raw.stderr || raw.stdout });
-    const others = git.run('git', ['ls-files', '--others', '--exclude-standard'], { cwd: ctx.worktreeRoot });
+    const others = ctx.runner.run('git', ['ls-files', '--others', '--exclude-standard'], { cwd: ctx.worktreeRoot });
 
     const matchers = ctx.allowedPaths.map(globToRegExp);
     const inScope = (p: string): boolean => matchers.some((m) => m.test(p));
