@@ -30,6 +30,9 @@ function migrate(db: DB): void {
   // Brief reliability: the recommendation + how many unknowns the brief still has to spike.
   ensureColumn(db, 'opportunity', 'recommendation', 'TEXT');
   ensureColumn(db, 'opportunity', 'unknowns_count', 'INTEGER');
+  // Live brief investigation state, shown in real time under "Validées".
+  ensureColumn(db, 'opportunity', 'brief_state', 'TEXT'); // running | done | failed | null
+  ensureColumn(db, 'opportunity', 'detail', 'TEXT'); // live sub-status (what the investigation is doing)
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {

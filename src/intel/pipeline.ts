@@ -45,12 +45,28 @@ const SLOTS: Record<string, string> = {
 };
 const fillQuery = (t: string): string => t.replace(/\{\{(\w+)\}\}/g, (_, k) => SLOTS[k] ?? '');
 
+// Extract a one-line live trace from a streamed agent message (a web search / page read).
+export function traceFromMsg(msg: Record<string, unknown>): string | null {
+  if (msg.type !== 'assistant') return null;
+  const m = (msg.message ?? msg) as { content?: unknown };
+  const content = Array.isArray(m.content) ? (m.content as { type?: string; name?: string; input?: Record<string, unknown> }[]) : [];
+  for (const block of content) {
+    if (block.type === 'tool_use') {
+      const q = String(block.input?.query ?? block.input?.url ?? '').slice(0, 80);
+      if (block.name === 'WebSearch') return `Recherche : ${q}`;
+      if (block.name === 'WebFetch') return `Lecture : ${q}`;
+      return `Outil : ${block.name ?? '?'}`;
+    }
+  }
+  return null;
+}
+
 async function runSie(
   deps: VeilleDeps,
   rs: RunState,
   role: SieRoleName,
   systemPrompt: string,
-  opts: { allowedTools?: string[]; maxBudgetUsd?: number } = {},
+  opts: { allowedTools?: string[]; maxBudgetUsd?: number; onMessage?: (m: Record<string, unknown>) => void } = {},
 ): Promise<{ text: string; costUsd: number; subtype: string }> {
   const cfgRole = { name: role, ...SIE_ROLES[role] };
   const res = await runRole(deps.query, {
@@ -60,6 +76,7 @@ async function runSie(
     settingSources: [],
     allowedTools: opts.allowedTools,
     maxBudgetUsd: opts.maxBudgetUsd ?? 1.5,
+    onMessage: opts.onMessage,
   });
   const cost = res.totalCostUsd ?? 0;
   deps.ledger.record(cfgRole.model, { input_tokens: 0, output_tokens: 0 }, { costUsd: cost, scope: 'intel' });
@@ -149,7 +166,11 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
     if (signalIds.length && !overRunBudget()) {
       stage('IDEATE', `${signalIds.length} fresh signals`);
       const openTitles = (deps.db.prepare(`SELECT title FROM opportunity WHERE status IN ('proposed','greenlit','accepted')`).all() as { title: string }[]).map((r) => r.title);
-      const i = await runSie(deps, rs, 'ideator', ideatePrompt(signalIds, openTitles));
+      // Owner corrections: rejected opportunities (with their reason) + "already exists" logbook notes.
+      // These teach the engine what NOT to re-propose - the lightweight learning loop.
+      const rejected = (deps.db.prepare("SELECT COALESCE(title_fr,title) AS t, comment FROM opportunity WHERE status='rejected' ORDER BY (decided_at IS NULL), decided_at DESC LIMIT 30").all() as { t: string; comment: string | null }[]).map((r) => (r.comment ? `${r.t} (raison: ${r.comment})` : r.t));
+      const ownerNotes = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('can','did') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
+      const i = await runSie(deps, rs, 'ideator', ideatePrompt(signalIds, openTitles, [...rejected, ...ownerNotes]));
       const cand = parseJsonLoose<{ opportunities?: IdeaOpp[] }>(i.text)?.opportunities ?? [];
 
       // SCORE each (Sonnet) -> code computes score -> upsert + tier --------------
@@ -239,12 +260,33 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
     }
   })();
   deps.onStage?.('BRIEF', r.title);
+  const setDetail = (d: string, state = 'running'): void => {
+    try {
+      deps.db.prepare('UPDATE opportunity SET brief_state=?, detail=?, updated_at=? WHERE id=?').run(state, d, new Date().toISOString(), r.id);
+    } catch {
+      /* trace best-effort */
+    }
+  };
+  setDetail('Investigation profonde lancée…');
+  let searches = 0;
+  let reads = 0;
   const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' ')), {
     allowedTools: ['WebSearch', 'WebFetch'],
     maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
+    onMessage: (msg) => {
+      const t = traceFromMsg(msg);
+      if (!t) return;
+      if (t.startsWith('Recherche')) searches += 1;
+      else if (t.startsWith('Lecture')) reads += 1;
+      setDetail(`${t}  ·  ${searches} recherches, ${reads} lectures`);
+    },
   });
   const f = parseJsonLoose<Feasibility>(fres.text);
-  if (!f || !f.recommendation) return false;
+  if (!f || !f.recommendation) {
+    setDetail('Investigation sans résultat exploitable - réessaie.', 'failed');
+    return false;
+  }
+  setDetail('Rédaction et traduction du brief…');
   const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
   const maxPrompt = renderMaxPrompt(oppEn, f, r.score); // English (for the coding session)
   const deeperPrompt = renderDeeperPrompt(oppEn, f);
@@ -254,7 +296,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
   const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
-    .prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, recommendation=?, unknowns_count=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?')
+    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, recommendation=?, unknowns_count=?, brief_state='done', detail=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
     .run(briefMd, maxPrompt, deeperPrompt, f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
   return true;
 }
@@ -280,7 +322,10 @@ async function briefTopFlagships(deps: VeilleDeps, rs: RunState, at: string): Pr
 export async function briefOpportunityById(deps: VeilleDeps, id: number): Promise<{ ok: boolean; costUsd: number; note?: string }> {
   const now = deps.now ?? new Date();
   const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
-  if (cap.paused) return { ok: false, costUsd: 0, note: cap.reason };
+  if (cap.paused) {
+    deps.db.prepare("UPDATE opportunity SET brief_state='failed', detail=? WHERE id=?").run(cap.reason ?? 'plafond atteint', id);
+    return { ok: false, costUsd: 0, note: cap.reason };
+  }
   const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
   if (!r) return { ok: false, costUsd: 0, note: 'not found' };
   const rs: RunState = { spentUsd: 0 };

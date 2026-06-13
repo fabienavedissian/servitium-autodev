@@ -240,3 +240,6 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .pq.mid { color: var(--amber); border-color: #3a2f1d; background: #221c11; }
 .pq.low { color: var(--red); border-color: #3a1f25; background: #201115; }
 .relevance-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+.brief-running { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.brief-running .trace { color: var(--accent); font-size: 12.5px; font-variant-numeric: tabular-nums; }

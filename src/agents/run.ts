@@ -16,6 +16,7 @@ export interface RunRoleInput {
   maxBudgetUsd?: number;
   settingSources?: string[];
   modelOverride?: string; // e.g. implement escalation to Opus
+  onMessage?: (msg: Record<string, unknown>) => void; // per-message hook (live trace of tool use)
 }
 
 export interface RunRoleResult {
@@ -48,6 +49,13 @@ export async function runRole(query: QueryFn, input: RunRoleInput): Promise<RunR
   try {
     for await (const msg of query({ prompt: input.prompt, options })) {
       if (msg && msg.type === 'result') result = msg;
+      if (input.onMessage) {
+        try {
+          input.onMessage(msg);
+        } catch {
+          /* trace must never break the run */
+        }
+      }
     }
   } catch (e) {
     // maxTurns / API errors surface as a thrown result; degrade gracefully so the FSM bounces.

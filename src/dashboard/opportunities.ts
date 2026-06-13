@@ -52,7 +52,7 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
   if (!['open', 'validated', 'all'].includes(status)) params.status = status;
   if (source === 'web' || source === 'code') params.source = source;
   const rows = db
-    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
+    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, brief_state, detail, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
     .all(params) as Record<string, unknown>[];
   return rows.map((r) => {
     const bd = breakdown(String(r.feature_json ?? '{}'), Number(r.signal_count ?? 1), r.last_signal_at as string | undefined);
@@ -77,13 +77,14 @@ export function opportunityDetail(db: DB, id: number): Record<string, unknown> |
   };
 }
 
-export type DecideAction = 'accept' | 'reject' | 'greenlight' | 'comment' | 'thumbs_up' | 'thumbs_down';
+export type DecideAction = 'accept' | 'reject' | 'greenlight' | 'close' | 'comment' | 'thumbs_up' | 'thumbs_down';
 
 export function decideOpportunity(db: DB, id: number, action: DecideAction, comment: string | null, at: string): void {
   const map: Record<DecideAction, { status?: string; relevance?: number; verdict: 'accept' | 'reject' | 'comment' | 'thumbs' }> = {
     accept: { status: 'accepted', verdict: 'accept' },
     reject: { status: 'rejected', verdict: 'reject' },
     greenlight: { status: 'greenlit', verdict: 'accept' },
+    close: { status: 'done', verdict: 'accept' },
     comment: { verdict: 'comment' },
     thumbs_up: { relevance: 1, verdict: 'thumbs' },
     thumbs_down: { relevance: -1, verdict: 'thumbs' },

@@ -18,6 +18,8 @@ SERVITIUM - what it is
 FEATURES THAT ALREADY EXIST (do NOT re-propose these; only deepen/extend them)
 - Shop + donations (0% commission; manual-donation friction is the upsell), raid protection, wars,
   bounty hunt, wipe management, live map, quests/missions (daily/weekly, snapshot progress, auto-claim).
+- The LIVE/interactive map ALREADY handles both Conan maps (Exiled Lands + Isle of Siptah). Wipe
+  management already exists. Do not propose these as new - only genuine extensions.
 - A Discord bot: tickets, gifts (items DB with real icons; ticket gift buttons), per-guild onboarding.
 - Host management (each VPS = a Host with a fingerprint UUID, 60s heartbeat; setup wizard shipped).
 - Items DB + admin-gift send; game-update tracking (Conan/Soulmask auto-update via SteamCMD).

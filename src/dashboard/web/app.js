@@ -168,7 +168,9 @@ function oppMetaHTML(o) {
 }
 function pqClass(q) { return q >= 75 ? 'good' : q >= 55 ? 'mid' : 'low'; }
 function briefActionsHTML(o) {
-  if (!o.has_brief) return `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus (~$0.7) → brief niveau RCON/.ini + prompt Max</span>`;
+  if (o.brief_state === 'running') return `<div class="brief-running"><div class="spinner"></div><span class="trace">${esc(o.detail || 'Investigation profonde en cours…')}</span></div>`;
+  if (o.brief_state === 'failed' && !o.has_brief) return `<button class="btn ok" data-brief>Relancer l'investigation</button><span class="muted small">${esc(o.detail || 'échec')}</span>`;
+  if (!o.has_brief) return `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus profonde (~5-10 min) → brief concret + prompt Max</span>`;
   const pq = o.promptQuality != null
     ? `<span class="pq ${pqClass(o.promptQuality)}" title="Fiabilité du prompt selon la profondeur d'investigation. Les inconnues se lèvent avec le prompt « approfondir » sur Max.">Qualité du prompt : ${o.promptQuality}%${o.unknowns_count ? ` · ${o.unknowns_count} inconnue${o.unknowns_count > 1 ? 's' : ''} à lever` : ''}</span>`
     : '';
@@ -196,14 +198,11 @@ function oppCard(o) {
       <div class="brief-zone"></div>
       <div class="brief-actions">${briefActionsHTML(o)}</div>
       <div class="opp-actions">
-        <button class="btn ok" data-act="greenlight">Valider — générer le brief</button>
-        <button class="btn no" data-act="reject">Pas intéressé</button>
-        <span class="spacer-x"></span>
-        <span class="muted small">Bien ciblé&nbsp;?</span>
-        <button class="btn ghost" data-act="thumbs_up" title="la veille a visé juste">Utile</button>
-        <button class="btn ghost" data-act="thumbs_down" title="hors sujet / sans intérêt">Hors sujet</button>
+        ${o.status === 'greenlit' || o.status === 'accepted'
+          ? `<button class="btn ok" data-act="close">Clôturer (terminé)</button><button class="btn no" data-act="reject">Pas intéressé</button><span class="muted small">Reste ici à vie pour ne pas le refaire.</span>`
+          : `<button class="btn ok" data-act="greenlight">Valider — générer le brief</button><button class="btn no" data-act="reject">Pas intéressé</button><span class="spacer-x"></span><span class="muted small">Bien ciblé&nbsp;?</span><button class="btn ghost" data-act="thumbs_up" title="la veille a visé juste">Utile</button><button class="btn ghost" data-act="thumbs_down" title="hors sujet / sans intérêt">Hors sujet</button>`}
       </div>
-      <div class="comment-box small"><textarea data-comment placeholder="Oriente le moteur : pourquoi tu aimes / n’aimes pas (nourrit le classement futur)…"></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
+      <div class="comment-box small"><textarea data-comment placeholder="Raison (ex : « on a déjà ça, la map gère déjà les 2 maps »). Écris-la puis « Pas intéressé » : le moteur ne te le reproposera plus."></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
     </div></div>`;
 }
 async function triggerBrief(id, btn) {
@@ -232,11 +231,14 @@ function wireOpp(card) {
   card.querySelector('.toggle').addEventListener('click', () => card.classList.toggle('open'));
   card.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
     const act = btn.dataset.act;
-    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: act }) });
-    const fr = { greenlight: 'validé', reject: 'pas intéressé', thumbs_up: 'utile', thumbs_down: 'hors sujet' };
-    toast('Enregistré : ' + (fr[act] || act));
-    // Validating = "pursue it" -> also kick off the concrete brief if there is none yet.
-    if (act === 'greenlight' && !card.querySelector('[data-copy]')) triggerBrief(id);
+    const body = { action: act };
+    // On reject, carry the comment box text as the reason (teaches the engine not to re-propose it).
+    if (act === 'reject') { const c = card.querySelector('[data-comment]')?.value.trim(); if (c) body.comment = c; }
+    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify(body) });
+    const fr = { greenlight: 'validé', reject: 'pas intéressé', close: 'clôturé', thumbs_up: 'utile', thumbs_down: 'hors sujet' };
+    toast('Enregistré : ' + (fr[act] || act) + (act === 'reject' && body.comment ? ' (le moteur ne le reproposera plus)' : ''));
+    if (act === 'greenlight' && !card.querySelector('[data-copy]')) await triggerBrief(id);
+    if (['greenlight', 'close', 'reject'].includes(act)) renderOpportunities();
   }));
   card.querySelector('[data-send-comment]')?.addEventListener('click', async () => {
     const txt = card.querySelector('[data-comment]').value.trim();
@@ -253,11 +255,9 @@ function patchOppCard(card, o) {
   if (sc) { sc.textContent = o.score ?? '?'; sc.className = 'opp-score ' + scoreClass(o.score); }
   const t = card.querySelector('.opp-title'); if (t) t.innerHTML = oppTitleHTML(o);
   const m = card.querySelector('.opp-meta'); if (m) m.innerHTML = oppMetaHTML(o);
-  const hadCopy = !!card.querySelector('[data-copy]');
-  if (hadCopy !== !!o.has_brief) {
-    const ba = card.querySelector('.brief-actions');
-    if (ba) { ba.innerHTML = briefActionsHTML(o); wireBriefActions(card); }
-  }
+  const ba = card.querySelector('.brief-actions');
+  const sig = `${o.brief_state || ''}|${o.has_brief ? 1 : 0}|${o.detail || ''}`;
+  if (ba && ba.dataset.sig !== sig) { ba.innerHTML = briefActionsHTML(o); ba.dataset.sig = sig; wireBriefActions(card); }
 }
 async function updateOpportunitiesLive() {
   const container = $('#opps');

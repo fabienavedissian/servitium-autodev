@@ -28,13 +28,16 @@ export function extractPrompt(angle: string, pages: { url: string; text: string 
   ].join('\n\n');
 }
 
-export function ideatePrompt(signals: { id: number; angle: string; title: string; summary: string }[], openTitles: string[]): string {
+export function ideatePrompt(signals: { id: number; angle: string; title: string; summary: string }[], openTitles: string[], avoid: string[] = []): string {
   return [
     `You are the IDEATOR for Servitium's intelligence engine. From today's fresh signals, propose concrete OPPORTUNITIES`,
     `for Servitium: features, new-game integrations, Discord-bot evolutions, monetization, or new business lines.`,
     `Each opportunity MUST be grounded in >=1 signal id and map onto Servitium's real product/edges. Concrete, not vague:`,
     `prefer "Rust players want a shop, doable via RCON" over "integrate Rust". Let weak lanes be empty - quality over quota.`,
     `Avoid duplicating anything already open: ${openTitles.length ? openTitles.join('; ') : '(none)'}.`,
+    avoid.length
+      ? `DO NOT propose anything that already EXISTS or the owner already REJECTED (these are corrections from the owner - respect them):\n${avoid.map((a) => `- ${a}`).join('\n')}`
+      : '',
     `Work entirely in English (best search/veille quality); a separate step translates for display.`,
     `Signals:\n${signals.map((s) => `[signal:${s.id}] (${s.angle}) ${s.title} - ${s.summary}`).join('\n')}`,
     `Output ONLY JSON: {"opportunities":[{"kind":"feature|game|business|integration|pricing|tech-enabler","title":string,"thesis":string,"whyNow":string,"fit":string,"dedupKey":string,"evidence":[signalId],"sources":[{"label":string,"url":string}]}]} (max 6).`,
