@@ -1,11 +1,19 @@
-// PM2 process definitions. The dashboard process is added in M5.
+// PM2 process definitions.
 module.exports = {
   apps: [
+    {
+      name: 'autodev-dashboard',
+      script: 'dist/src/dashboard/server.js',
+      node_args: '--env-file-if-exists=.env',
+      autorestart: true,
+      max_memory_restart: '256M',
+      env: { DASH_PORT: '8787' },
+    },
     {
       name: 'autodev-orchestrator',
       script: 'dist/src/index.js',
       node_args: '--env-file-if-exists=.env',
-      autorestart: false, // M0 scaffold runs once and exits; switched on when the scheduler lands.
+      autorestart: false, // not a polling loop yet; started deliberately once the first mission is approved
       max_memory_restart: '512M',
     },
   ],

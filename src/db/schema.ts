@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 // State lives here only to make a crashed run resumable; GitHub stays the source of
 // truth for the queue and approvals. See AUTODEV-BUILD-PLAN-v1.md s4.
@@ -92,7 +92,27 @@ CREATE TABLE IF NOT EXISTS comment (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS proposal (
+  id INTEGER PRIMARY KEY,
+  rank INTEGER,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,             -- security | performance | refactor | test-gap | bug
+  module TEXT,
+  problem TEXT,
+  solution TEXT,
+  impact TEXT,                        -- high | medium | low
+  effort TEXT,                        -- small | medium | large
+  rationale TEXT,
+  acceptance_hint TEXT,
+  source TEXT,                        -- e.g. 'api-audit'
+  status TEXT NOT NULL DEFAULT 'proposed', -- proposed | approved | rejected | queued | done
+  comment TEXT,
+  decided_at TEXT,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_step_task ON step(task_id);
 CREATE INDEX IF NOT EXISTS idx_gate_task ON gate_result(task_id);
 CREATE INDEX IF NOT EXISTS idx_spend_created ON spend_ledger(created_at);
+CREATE INDEX IF NOT EXISTS idx_proposal_status ON proposal(status);
 `;
