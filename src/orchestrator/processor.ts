@@ -9,6 +9,7 @@ import type { Ledger } from '../cost/ledger';
 import type { GithubClient } from '../github/client';
 import type { QueuedTask, ProcessResult } from './poll';
 import type { MachineConfig, TaskState } from '../fsm/machine';
+import type { TaskContext } from '../agents/prompts';
 
 export interface ProcessorDeps {
   sdk: AgentSdk;
@@ -50,7 +51,7 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
         return { final: failed(task.id) };
       }
 
-      const ctx = { repo: task.repo, title: task.title, body: task.body, allowedPaths: task.allowedPaths };
+      const ctx: TaskContext = { repo: task.repo, title: task.title, body: task.body, allowedPaths: task.allowedPaths };
       const final = await runTask({
         sdk: deps.sdk,
         runner: selectRunner(),
