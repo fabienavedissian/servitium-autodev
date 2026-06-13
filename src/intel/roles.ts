@@ -16,7 +16,7 @@ export const SIE_ROLES: Record<SieRoleName, SieRoleConfig> = {
   extract: { model: MODELS.haiku, effort: 'low', maxTurns: 5 }, // page text -> structured signal
   ideator: { model: MODELS.sonnet, effort: 'medium', maxTurns: 6 }, // signals -> candidate opportunities
   scorer: { model: MODELS.sonnet, effort: 'medium', maxTurns: 4 }, // emit the 8 features (no score)
-  feasibility: { model: MODELS.opus, effort: 'high', maxTurns: 10 }, // deep concrete brief, gated to greenlit
+  feasibility: { model: MODELS.opus, effort: 'xhigh', maxTurns: 30 }, // DEEP concrete brief, gated to greenlit (relentless web research)
   promptsmith: { model: MODELS.sonnet, effort: 'high', maxTurns: 8 }, // fill the Max prompt template
   critic: { model: MODELS.sonnet, effort: 'medium', maxTurns: 6 }, // one validation bounce on the prompt
   translate: { model: MODELS.haiku, effort: 'low', maxTurns: 2 }, // EN -> FR for display only (the veille stays English)

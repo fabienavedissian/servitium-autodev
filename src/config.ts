@@ -28,7 +28,7 @@ const ConfigSchema = z.object({
   SIE_DAILY_CAP_USD: z.coerce.number().positive().default(3),
   SIE_RUN_BUDGET_USD: z.coerce.number().positive().default(2.2), // per-run hard abort (skips brief first)
   SIE_BRIEF_TOP_N: z.coerce.number().int().nonnegative().default(1),
-  PER_BRIEF_BUDGET_USD: z.coerce.number().positive().default(1.2),
+  PER_BRIEF_BUDGET_USD: z.coerce.number().positive().default(3), // a DEEP investigation can spend more
 
   // Paths.
   DB_PATH: z.string().default('./autodev.db'),

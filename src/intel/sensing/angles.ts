@@ -21,7 +21,8 @@ export const SENSE_ANGLES: SenseAngle[] = [
     queryTemplates: [
       '{{games}} dedicated server update changelog',
       'RCON protocol new commands {{games}}',
-      'Node.js NestJS release notes performance',
+      'Angular {{year}} new features signals control flow best practices',
+      'NestJS {{year}} release migration best practices',
     ],
     freshnessDays: 30,
   },
