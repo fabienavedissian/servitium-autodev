@@ -3,8 +3,8 @@ import { loadConfig, assertRuntimeSecrets, targetRepos } from '../src/config';
 describe('config', () => {
   it('applies sensible defaults', () => {
     const cfg = loadConfig({});
-    expect(cfg.MONTHLY_SPEND_CAP_USD).toBe(100);
-    expect(cfg.DAILY_SPEND_CAP_USD).toBe(10);
+    expect(cfg.MONTHLY_SPEND_CAP_USD).toBe(52);
+    expect(cfg.DAILY_SPEND_CAP_USD).toBe(20);
     expect(cfg.PER_TASK_BUDGET_USD).toBe(10);
     expect(cfg.TARGET_REPOS).toBe('servitium-api');
     expect(cfg.GITHUB_ORG).toBe('fabienavedissian');
