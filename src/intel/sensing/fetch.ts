@@ -1,6 +1,6 @@
 // Host-side page fetch (token-free): global fetch + a dependency-free HTML->text reduction. Keeps
-// the token-heavy EXTRACT stage cheap by handing it clean-ish text, not raw markup. Failures degrade
-// to an empty string (the page is simply skipped, never crashes the run).
+// the token-heavy EXTRACT stage cheap by handing it clean-ish text, not raw markup. HARD memory cap
+// (streamed read, bytes bounded) so a giant page can never OOM-kill the run; failures degrade to ''.
 
 export interface FetchedPage {
   url: string;
@@ -28,7 +28,36 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
-export async function fetchPage(url: string, timeoutMs = 12_000, maxChars = 6000): Promise<FetchedPage> {
+// Read the body stream but stop after maxBytes (bounds memory hard; many pages are multi-MB).
+async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        total += value.length;
+        if (total >= maxBytes) {
+          try {
+            await reader.cancel();
+          } catch {
+            /* ignore */
+          }
+          break;
+        }
+      }
+    }
+  } catch {
+    /* partial read is fine */
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+export async function fetchPage(url: string, timeoutMs = 12_000, maxChars = 6000, maxBytes = 400_000): Promise<FetchedPage> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -39,9 +68,14 @@ export async function fetchPage(url: string, timeoutMs = 12_000, maxChars = 6000
     });
     const ct = res.headers.get('content-type') ?? '';
     if (!res.ok || !/text\/html|text\/plain|application\/xhtml/i.test(ct)) {
+      try {
+        await res.body?.cancel();
+      } catch {
+        /* ignore */
+      }
       return { url, ok: false, status: res.status, text: '' };
     }
-    const raw = await res.text();
+    const raw = await readCapped(res, maxBytes);
     const text = (ct.includes('text/plain') ? raw : htmlToText(raw)).slice(0, maxChars);
     return { url, ok: true, status: res.status, text };
   } catch {
@@ -51,14 +85,25 @@ export async function fetchPage(url: string, timeoutMs = 12_000, maxChars = 6000
   }
 }
 
-// Fetch a batch with bounded concurrency (politeness + speed). Order preserved.
-export async function fetchBatch(urls: string[], concurrency = 4): Promise<FetchedPage[]> {
+// Fetch a batch with bounded concurrency. Each page is independently wrapped so one bad URL can never
+// reject the batch (the run must survive any page). A hard race-timeout guarantees forward progress.
+export async function fetchBatch(urls: string[], concurrency = 3): Promise<FetchedPage[]> {
   const out: FetchedPage[] = new Array(urls.length);
   let i = 0;
+  const guard = async (url: string): Promise<FetchedPage> => {
+    try {
+      return await Promise.race([
+        fetchPage(url),
+        new Promise<FetchedPage>((resolve) => setTimeout(() => resolve({ url, ok: false, status: 0, text: '' }), 18_000)),
+      ]);
+    } catch {
+      return { url, ok: false, status: 0, text: '' };
+    }
+  };
   const workers = Array.from({ length: Math.min(concurrency, urls.length) }, async () => {
     while (i < urls.length) {
       const idx = i++;
-      out[idx] = await fetchPage(urls[idx]);
+      out[idx] = await guard(urls[idx]);
     }
   });
   await Promise.all(workers);
