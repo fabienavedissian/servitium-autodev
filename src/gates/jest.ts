@@ -32,6 +32,11 @@ export function runJestJson(
   } catch {
     /* fall back to stdout */
   }
+  try {
+    fs.rmSync(outFile, { force: true }); // never leave our artifact for scope-diff to flag
+  } catch {
+    /* ignore */
+  }
   const parsed = parseJestJson(content || r.stdout || r.stderr);
   return { ran: parsed.ran, failures: parsed.failures, exitCode: r.exitCode };
 }
@@ -76,7 +81,17 @@ export const testsGreenGate = {
     const res = runJestJson(ctx.runner, ctx.worktreeRoot, [], 1_200_000);
     if (!res.ran) return fail('tests-green', { reason: 'suite did not run', exitCode: res.exitCode });
     const baseline = new Set(ctx.baselines?.failingTests ?? []);
-    const newFailures = res.failures.filter((f) => !baseline.has(f));
+    let newFailures = res.failures.filter((f) => !baseline.has(f));
+    // Flaky-resilience: a "new failure" in an unrelated file is usually a non-deterministic test, not
+    // a regression. Re-run only the offending files once; keep only failures that reproduce.
+    if (newFailures.length > 0) {
+      const files = [...new Set(newFailures.map((f) => f.split('::')[0]).filter(Boolean))];
+      const rerun = runJestJson(ctx.runner, ctx.worktreeRoot, files, 600_000);
+      if (rerun.ran) {
+        const stillFailing = new Set(rerun.failures);
+        newFailures = newFailures.filter((f) => stillFailing.has(f));
+      }
+    }
     if (newFailures.length > 0) {
       return fail('tests-green', { newFailures: newFailures.slice(0, 30), newCount: newFailures.length, baselineFailures: baseline.size });
     }

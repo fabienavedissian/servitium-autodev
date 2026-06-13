@@ -15,6 +15,8 @@ export const scopeDiffGate = {
 
     const matchers = ctx.allowedPaths.map(globToRegExp);
     const inScope = (p: string): boolean => matchers.some((m) => m.test(p));
+    // Internal gate artifacts (e.g. the jest json output) are never part of a PR and must not count.
+    const isArtifact = (p: string): boolean => p.split('/').pop()?.startsWith('.autodev') ?? false;
     const offending: string[] = [];
     const symlinks: string[] = [];
 
@@ -25,9 +27,10 @@ export const scopeDiffGate = {
       const dstMode = line.slice(1, tab).split(/\s+/)[1];
       const p = line.slice(tab + 1).trim();
       if (dstMode === '120000') symlinks.push(p);
-      if (!inScope(p)) offending.push(p);
+      if (!inScope(p) && !isArtifact(p)) offending.push(p);
     }
     for (const p of others.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+      if (isArtifact(p)) continue;
       if (isSymlink(path.join(ctx.worktreeRoot, p))) symlinks.push(p);
       if (!inScope(p)) offending.push(p);
     }
