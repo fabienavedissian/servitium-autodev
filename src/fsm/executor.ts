@@ -22,6 +22,7 @@ import { runGates } from '../gates/runner';
 import { tscGate } from '../gates/tsc';
 import { testsGreenGate, testsRedGate } from '../gates/jest';
 import { scopeDiffGate } from '../gates/scopeDiff';
+import { reconcileAllowedPaths, validateAllowedPaths } from '../git/scopeGuard';
 import type { GateContext } from '../gates/index';
 import type { SandboxRunner } from '../sandbox/run';
 
@@ -36,6 +37,7 @@ export interface AgentOptions {
 export interface RunState {
   specFiles: string[];
   frozenTests: Record<string, string>;
+  lastImplFailure?: string; // signature of the previous IMPLEMENT gate failure (no-progress guard)
 }
 
 export interface ExecutorDeps {
@@ -106,9 +108,20 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
 
     const parsed = parseRoleOutcome(role, res.text);
 
+    let specNote: string | undefined;
     if (role === 'spec' && parsed.outcome === 'ok') {
       const ap = parsed.data.allowedPaths;
-      if (Array.isArray(ap)) deps.ctx.allowedPaths = ap as string[];
+      if (Array.isArray(ap)) {
+        const rec = reconcileAllowedPaths(deps.worktreeRoot, ap as string[]);
+        const v = validateAllowedPaths(rec.globs);
+        if (v.allowed) {
+          deps.ctx.allowedPaths = rec.globs;
+          if (rec.corrections.length) specNote = `allowed_paths reconciled: ${rec.corrections.join('; ')}`;
+        } else {
+          // Spec proposed an unusable (too broad / empty) scope: keep the initial derived scope.
+          specNote = `spec allowed_paths rejected (${v.reason}); kept initial scope [${deps.ctx.allowedPaths.join(', ')}]`;
+        }
+      }
       if (typeof parsed.data.spec === 'string') deps.ctx.spec = parsed.data.spec;
       if (Array.isArray(parsed.data.acceptanceCriteria)) deps.ctx.acceptanceCriteria = parsed.data.acceptanceCriteria as string[];
     }
@@ -137,13 +150,19 @@ export function buildExecutor(deps: ExecutorDeps): (state: State, task: TaskStat
     if (state === 'IMPLEMENT') {
       deps.attempt.n += 1;
       const s = await runGates([testsGreenGate, tscGate, scopeDiffGate], gateCtx());
-      const outcome: Outcome = s.allPass ? 'gates-pass' : 'gates-fail';
-      deps.onStep?.({ ...base, status: s.allPass ? 'ok' : 'bounced', outcome, gates: gateInfo(s), diff: captureDiff(), note: s.failed.join(',') });
-      return { outcome, costUsd: cost, note: s.failed.join(',') };
+      // No-progress guard: if an attempt fails with the exact same gate signature as the previous
+      // one, retrying is futile -> park for a human instead of burning maxLoops x implement cost.
+      const sig = JSON.stringify(s.results.filter((r) => r.status !== 'pass').map((r) => [r.gate, r.details]));
+      const stuck = !s.allPass && deps.runState.lastImplFailure === sig;
+      deps.runState.lastImplFailure = s.allPass ? undefined : sig;
+      const outcome: Outcome = s.allPass ? 'gates-pass' : stuck ? 'gates-stuck' : 'gates-fail';
+      const note = stuck ? `no progress vs previous attempt: ${s.failed.join(',')}` : s.failed.join(',');
+      deps.onStep?.({ ...base, status: s.allPass ? 'ok' : 'bounced', outcome, gates: gateInfo(s), diff: captureDiff(), note });
+      return { outcome, costUsd: cost, note };
     }
 
     const bounced = parsed.outcome === 'bounce' || parsed.outcome === 'repro';
-    deps.onStep?.({ ...base, status: bounced ? 'bounced' : 'ok', outcome: parsed.outcome, note: res.subtype });
-    return { outcome: parsed.outcome, costUsd: cost, note: res.subtype };
+    deps.onStep?.({ ...base, status: bounced ? 'bounced' : 'ok', outcome: parsed.outcome, note: specNote ?? res.subtype });
+    return { outcome: parsed.outcome, costUsd: cost, note: specNote ?? res.subtype };
   };
 }

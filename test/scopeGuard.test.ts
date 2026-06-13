@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { validateAllowedPaths, globToRegExp, isWriteAllowed } from '../src/git/scopeGuard';
+import { validateAllowedPaths, globToRegExp, isWriteAllowed, reconcileAllowedPaths } from '../src/git/scopeGuard';
 
 describe('validateAllowedPaths', () => {
   it('accepts a normal feature glob', () => {
@@ -69,5 +69,42 @@ describe('isWriteAllowed', () => {
       return; // Windows without Developer Mode cannot create symlinks; skip.
     }
     expect(isWriteAllowed(root, ['src/shop/**'], 'src/shop/link.ts').allowed).toBe(false);
+  });
+});
+
+describe('reconcileAllowedPaths', () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'autodev-recon-'));
+    fs.mkdirSync(path.join(root, 'src', 'infrastructure', 'payments'), { recursive: true });
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('widens a typo dir glob to the nearest existing ancestor', () => {
+    const r = reconcileAllowedPaths(root, ['src/infrastructure/payment/**']);
+    expect(r.globs).toEqual(['src/infrastructure/**']);
+    expect(r.corrections).toHaveLength(1);
+  });
+  it('keeps a glob whose concrete dir prefix exists', () => {
+    const r = reconcileAllowedPaths(root, ['src/infrastructure/payments/**']);
+    expect(r.globs).toEqual(['src/infrastructure/payments/**']);
+    expect(r.corrections).toEqual([]);
+  });
+  it('keeps a wildcard-segment spec glob whose concrete prefix exists', () => {
+    const r = reconcileAllowedPaths(root, ['src/infrastructure/**/*.spec.ts']);
+    expect(r.globs).toEqual(['src/infrastructure/**/*.spec.ts']);
+  });
+  it('keeps a new-file glob whose parent dir exists', () => {
+    const r = reconcileAllowedPaths(root, ['src/infrastructure/payments/paypal.service.ts']);
+    expect(r.globs).toEqual(['src/infrastructure/payments/paypal.service.ts']);
+  });
+  it('dedups after widening two typos to the same ancestor', () => {
+    const r = reconcileAllowedPaths(root, ['src/infrastructure/payment/**', 'src/infrastructure/paypal/**']);
+    expect(r.globs).toEqual(['src/infrastructure/**']);
+  });
+  it('drops a glob with no existing part', () => {
+    const r = reconcileAllowedPaths(root, ['nope/totally/missing/**']);
+    expect(r.globs).toEqual([]);
+    expect(r.corrections[0]).toMatch(/dropped/);
   });
 });

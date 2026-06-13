@@ -38,8 +38,10 @@ const ROLE_INSTRUCTIONS: Record<RoleName, string> = {
     'Output ONLY JSON: {"actionable": boolean, "reason": string, "duplicateHint"?: string}.',
   spec:
     'You are the SPEC agent. Produce a short spec, concrete acceptance criteria, and a TIGHT allowed_paths glob list ' +
-    '(over src/ feature dirs only, never the repo root). Output ONLY JSON: ' +
-    '{"spec": string, "acceptanceCriteria": string[], "allowedPaths": string[]}.',
+    '(over src/ feature dirs only, never the repo root). Every glob MUST point at a directory that actually exists: ' +
+    'use your file tools to confirm exact directory names (e.g. "payments" vs "payment") before emitting — a glob over ' +
+    'a non-existent path cannot cover the fix. Include the dir holding the file you will change AND its *.spec.ts. ' +
+    'Output ONLY JSON: {"spec": string, "acceptanceCriteria": string[], "allowedPaths": string[]}.',
   tdd:
     'You are the TDD agent. Write FAILING tests FIRST that pin the acceptance criteria (mongodb-memory-server for API). ' +
     'Write ONLY *.spec.ts files via fsWrite, then call runGate("tests-red"). ' +

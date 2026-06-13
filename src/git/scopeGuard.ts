@@ -89,6 +89,48 @@ export function isWriteAllowed(worktreeRoot: string, allowedGlobs: string[], tar
   return { allowed: false, reason: 'not in allowed_paths' };
 }
 
+// A spec agent often narrows allowed_paths to a guessed feature dir and mis-spells it (e.g.
+// "payment" vs "payments") — the scope guard then (correctly) blocks the real fix and the run burns
+// a full pass for nothing. Reconcile each glob against the real tree: if its concrete directory
+// prefix does not exist, widen the glob to the nearest ancestor directory that DOES exist. Bounded
+// (never widens above a real segment) and fully audited via the returned corrections.
+export function reconcileAllowedPaths(worktreeRoot: string, globs: string[]): { globs: string[]; corrections: string[] } {
+  const corrections: string[] = [];
+  const out: string[] = [];
+  for (const g of globs) {
+    const segs = g.replace(/\\/g, '/').split('/').filter(Boolean);
+    const hasWild = segs.some((s) => s.includes('*'));
+    const dirSegs: string[] = [];
+    for (const s of segs) {
+      if (s.includes('*')) break;
+      dirSegs.push(s);
+    }
+    if (!hasWild && dirSegs.length) dirSegs.pop(); // last segment is the target filename, not a dir
+    if (dirSegs.length === 0 || isDir(path.join(worktreeRoot, ...dirSegs))) {
+      out.push(g);
+      continue;
+    }
+    const keep = dirSegs.slice();
+    while (keep.length && !isDir(path.join(worktreeRoot, ...keep))) keep.pop();
+    if (keep.length === 0) {
+      corrections.push(`dropped "${g}" (no part of its path exists in the repo)`);
+      continue;
+    }
+    const widened = `${keep.join('/')}/**`;
+    corrections.push(`"${g}" -> "${widened}" (path did not exist; widened to nearest real directory)`);
+    out.push(widened);
+  }
+  return { globs: [...new Set(out)], corrections };
+}
+
+function isDir(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function isInside(root: string, child: string): boolean {
   const rel = path.relative(root, child);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));

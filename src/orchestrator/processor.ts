@@ -151,6 +151,9 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
         deps.log?.(`#${task.id}: npm install failed`, npm.stderr.slice(-300));
         return { final: failed(task.id) };
       }
+      // npm may rewrite the lockfile (box npm version != the one that generated it); restore it so the
+      // env churn never pollutes the change diff / scope-diff gate.
+      host.run('git', ['checkout', '--', 'package-lock.json'], { cwd: worktree });
 
       deps.onProgress?.(task.id, 'SETUP', npm.cached ? 'Capturing the test baseline' : 'Capturing the test baseline (one-time, ~1 min)');
       const baseSha = host.run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim() || 'head';

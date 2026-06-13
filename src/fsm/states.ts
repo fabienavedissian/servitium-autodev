@@ -29,6 +29,7 @@ export type Outcome =
   | 'not-red'
   | 'gates-pass'
   | 'gates-fail'
+  | 'gates-stuck'
   | 'approve'
   | 'bounce'
   | 'clean'
@@ -59,7 +60,8 @@ export function nextState(state: State, outcome: Outcome): State {
     case 'TESTS_FIRST':
       return outcome === 'red' ? 'IMPLEMENT' : 'NEEDS_HUMAN';
     case 'IMPLEMENT':
-      return outcome === 'gates-pass' ? 'CODE_REVIEW' : 'IMPLEMENT';
+      if (outcome === 'gates-pass') return 'CODE_REVIEW';
+      return outcome === 'gates-stuck' ? 'NEEDS_HUMAN' : 'IMPLEMENT';
     case 'CODE_REVIEW':
       return outcome === 'approve' ? 'CHALLENGE' : 'IMPLEMENT';
     case 'CHALLENGE':
