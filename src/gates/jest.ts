@@ -41,7 +41,7 @@ export function parseJestJson(stdout: string): { ran: boolean; failures: string[
 export const testsGreenGate = {
   name: 'tests-green',
   run(ctx: GateContext): GateResult {
-    const r = ctx.runner.run('npx', ['jest', '--runInBand', '--ci', '--json'], { cwd: ctx.worktreeRoot, timeoutMs: 1_800_000 });
+    const r = ctx.runner.run('npx', ['jest', '--runInBand', '--ci', '--json', '--forceExit'], { cwd: ctx.worktreeRoot, timeoutMs: 1_200_000 });
     const parsed = parseJestJson(r.stdout || r.stderr);
     if (!parsed.ran) {
       return fail('tests-green', { reason: 'suite did not run', exitCode: r.exitCode, tail: tail(r.stderr || r.stdout) });
@@ -61,7 +61,7 @@ export const testsRedGate = {
   run(ctx: GateContext): GateResult {
     const specs = ctx.specFiles ?? [];
     if (specs.length === 0) return fail('tests-red', { reason: 'no new spec files to run red' });
-    const r = ctx.runner.run('npx', ['jest', '--runInBand', '--ci', ...specs], { cwd: ctx.worktreeRoot, timeoutMs: 900_000 });
+    const r = ctx.runner.run('npx', ['jest', '--runInBand', '--ci', '--forceExit', ...specs], { cwd: ctx.worktreeRoot, timeoutMs: 900_000 });
     if (r.exitCode !== 0) return pass('tests-red', { specs, exitCode: r.exitCode });
     return fail('tests-red', { reason: 'new specs passed before implementation (no-op test?)', specs });
   },

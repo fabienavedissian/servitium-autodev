@@ -44,7 +44,7 @@ function captureBaselines(
     }
   }
   log?.(`capturing baselines (jest + tsc) for ${sha.slice(0, 7)} — one-time, several minutes`);
-  const j = host.run('npx', ['jest', '--runInBand', '--ci', '--json'], { cwd: worktree, timeoutMs: 1_800_000 });
+  const j = host.run('npx', ['jest', '--runInBand', '--ci', '--json', '--forceExit'], { cwd: worktree, timeoutMs: 600_000 });
   const failingTests = parseJestJson(j.stdout || j.stderr).failures;
   const t = host.run('npx', ['tsc', '--noEmit', '-p', 'tsconfig.json'], { cwd: worktree, timeoutMs: 600_000 });
   const tscErrors = `${t.stdout}\n${t.stderr}`.split('\n').map((l) => l.trim()).filter((l) => /error TS\d+:/.test(l));
@@ -102,8 +102,21 @@ export function buildProcessor(deps: ProcessorDeps): (task: QueuedTask) => Promi
         return { final: failed(task.id) };
       }
 
+      deps.onState?.(task.id, 'SETUP', 'QUEUED', 0);
       const baseSha = host.run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim() || 'head';
       const baselines = captureBaselines(host, worktree, deps.mirrorRoot, baseSha, deps.log);
+      deps.onStep?.(task.id, {
+        phase: 'SETUP',
+        status: 'ok',
+        outcome: 'ok',
+        costUsd: 0,
+        text: JSON.stringify({
+          prepared: 'mirror + worktree + npm install + baseline captured',
+          base: baseSha.slice(0, 10),
+          preexistingTestFailures: baselines?.failingTests?.length ?? 0,
+          preexistingTscErrors: baselines?.tscErrors?.length ?? 0,
+        }),
+      });
 
       const ctx: TaskContext = { repo: task.repo, title: task.title, body: task.body, allowedPaths: task.allowedPaths };
       const final = await runTask({
