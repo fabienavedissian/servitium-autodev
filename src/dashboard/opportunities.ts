@@ -34,7 +34,7 @@ export function listOpportunities(db: DB, status = 'open'): Record<string, unkno
         ? '1=1'
         : 'status = @status';
   const rows = db
-    .prepare(`SELECT id, rank, score, kind, angle, title, thesis, why_now, fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
+    .prepare(`SELECT id, rank, score, kind, angle, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
     .all(status !== 'open' && status !== 'all' ? { status } : {}) as Record<string, unknown>[];
   return rows.map((r) => ({
     ...r,

@@ -35,7 +35,7 @@ export function ideatePrompt(signals: { id: number; angle: string; title: string
     `Each opportunity MUST be grounded in >=1 signal id and map onto Servitium's real product/edges. Concrete, not vague:`,
     `prefer "Rust players want a shop, doable via RCON" over "integrate Rust". Let weak lanes be empty - quality over quota.`,
     `Avoid duplicating anything already open: ${openTitles.length ? openTitles.join('; ') : '(none)'}.`,
-    `IMPORTANT: search and reason in English, but write the owner-facing fields (title, thesis, whyNow, fit) in FRENCH - the owner reads them. Keep dedupKey and kind in English.`,
+    `Work entirely in English (best search/veille quality); a separate step translates for display.`,
     `Signals:\n${signals.map((s) => `[signal:${s.id}] (${s.angle}) ${s.title} - ${s.summary}`).join('\n')}`,
     `Output ONLY JSON: {"opportunities":[{"kind":"feature|game|business|integration|pricing|tech-enabler","title":string,"thesis":string,"whyNow":string,"fit":string,"dedupKey":string,"evidence":[signalId],"sources":[{"label":string,"url":string}]}]} (max 6).`,
     `dedupKey = a slugified canonical noun, e.g. "game:rust", "business:hosting", "discord:premium-tickets".`,
@@ -50,7 +50,6 @@ export function scorerPrompt(opp: { title: string; thesis: string; whyNow: strin
     `(market/demand claims MUST cite a signal id; an axis with no evidence will be capped by code).`,
     `Opportunity: ${opp.title}\nThesis: ${opp.thesis}\nWhy now: ${opp.whyNow}\nFit: ${opp.fit}`,
     `Evidence available: ${evidenceList}`,
-    `Write the "justifications" values in FRENCH (the owner reads them); keep feature keys in English.`,
     `Features: ${FEATURE_KEYS.join(', ')}.`,
     `  strategic_fit: 0 off-mission (becoming a host) .. 1 dead-center deep-admin/compounds edges`,
     `  demand_evidence: 0 no signal .. 1 cited competitor gaps / forum pain (MUST cite)`,
@@ -71,12 +70,31 @@ export function feasibilityPrompt(opp: { title: string; thesis: string; whyNow: 
     `inventory.giveto <id> <item>; limits: Z". Use web search to find REAL commands, config keys, APIs, mod options,`,
     `and real community demand WITH sources. If something is unknown, say so in "unknowns" - never bluff.`,
     `Opportunity: ${opp.title}\nThesis: ${opp.thesis}\nWhy now: ${opp.whyNow}\nFit: ${opp.fit}\nSources: ${sources}`,
-    `IMPORTANT: search and reason in English, but write ALL owner-facing text in FRENCH (verdict, concreteFindings, unknowns, approachSteps, dataModel, outOfScope, acceptanceCriteria, testStrategy, reviewChecklist). Keep recommendation/targetApp enums and verifyCommands (shell) as-is.`,
-    `Output ONLY JSON: {"recommendation":"build-now|incubate|park|drop","verdict":"2-3 phrases pour le proprietaire",`,
+    `Work entirely in English for max quality; a separate step translates the brief for display.`,
+    `Output ONLY JSON: {"recommendation":"build-now|incubate|park|drop","verdict":"2-3 sentences owner-facing",`,
     `"targetApp":"servitium-api|center|portal|ui|electron-gui|new-app","concreteFindings":["real commands/config/API details, each specific"],`,
     `"unknowns":["what a spike must answer first"],"approachSteps":["step naming real files/dirs"],"dataModel":string,"outOfScope":string,`,
     `"acceptanceCriteria":["objectively checkable"],"testStrategy":string,"verifyCommands":["npm run build", "..."],"reviewChecklist":["..."]}.`,
     GROUND,
+  ].join('\n\n');
+}
+
+// Display-only translation (the veille reasoned in English; this just renders FR for the owner).
+export function translateOppsPrompt(items: { id: number; title: string; thesis: string; whyNow: string; fit: string }[]): string {
+  return [
+    `Translate the owner-facing text of these product opportunities into natural, fluent FRENCH.`,
+    `Keep proper nouns, game names, product names and technical terms (RCON, .ini, API, Pro, Discord, SteamID) intact.`,
+    `Items:\n${JSON.stringify(items)}`,
+    `Output ONLY JSON: {"items":[{"id":number,"title":string,"thesis":string,"whyNow":string,"fit":string}]}.`,
+  ].join('\n\n');
+}
+
+export function translateFeasibilityPrompt(f: Record<string, unknown>): string {
+  return [
+    `Translate the owner-facing fields of this feasibility brief into natural, fluent FRENCH.`,
+    `Keep proper nouns, exact commands, config keys, file paths and technical terms intact.`,
+    `Fields:\n${JSON.stringify(f)}`,
+    `Output ONLY JSON with the SAME keys; translate string and string[] values to French; keep array shapes.`,
   ].join('\n\n');
 }
 

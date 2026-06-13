@@ -9,7 +9,7 @@ export interface SieRoleConfig {
   maxTurns: number;
 }
 
-export type SieRoleName = 'harvest' | 'extract' | 'ideator' | 'scorer' | 'feasibility' | 'promptsmith' | 'critic';
+export type SieRoleName = 'harvest' | 'extract' | 'ideator' | 'scorer' | 'feasibility' | 'promptsmith' | 'critic' | 'translate';
 
 export const SIE_ROLES: Record<SieRoleName, SieRoleConfig> = {
   harvest: { model: MODELS.haiku, effort: 'low', maxTurns: 6 }, // WebSearch one batch/angle
@@ -19,4 +19,5 @@ export const SIE_ROLES: Record<SieRoleName, SieRoleConfig> = {
   feasibility: { model: MODELS.opus, effort: 'high', maxTurns: 10 }, // deep concrete brief, gated to greenlit
   promptsmith: { model: MODELS.sonnet, effort: 'high', maxTurns: 8 }, // fill the Max prompt template
   critic: { model: MODELS.sonnet, effort: 'medium', maxTurns: 6 }, // one validation bounce on the prompt
+  translate: { model: MODELS.haiku, effort: 'low', maxTurns: 2 }, // EN -> FR for display only (the veille stays English)
 };

@@ -9,7 +9,7 @@ import { fetchBatch } from './sensing/fetch';
 import { dedupSignals, signalDedupKey, domainOf } from './sensing/dedup';
 import { scoreOpportunity, tierForScore, DEFAULT_WEIGHTS } from './score/rubric';
 import * as repos from './repos';
-import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPrompt, promptsmithPrompt } from './prompts';
+import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPrompt, translateOppsPrompt, translateFeasibilityPrompt } from './prompts';
 import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility } from './brief/maxPromptTemplate';
 
 export interface VeilleDeps {
@@ -153,6 +153,7 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
       const cand = parseJsonLoose<{ opportunities?: IdeaOpp[] }>(i.text)?.opportunities ?? [];
 
       // SCORE each (Sonnet) -> code computes score -> upsert + tier --------------
+      const translatable: { id: number; title: string; thesis: string; whyNow: string; fit: string }[] = [];
       for (const c of cand) {
         if (overRunBudget()) break;
         const evList = (c.evidence ?? []).map((id) => `[signal:${id}]`).join(' ') || '(none cited)';
@@ -161,16 +162,23 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
         const parsed = parseJsonLoose<{ features?: Record<string, number>; justifications?: Record<string, string>; evidenceCount?: Record<string, number> }>(sres.text) ?? {};
         const featureJson = JSON.stringify({ features: parsed.features ?? {}, evidenceCount: parsed.evidenceCount ?? {}, justifications: parsed.justifications ?? {} });
         const scoreRes = scoreOpportunity({ features: parsed.features ?? {}, evidenceCount: parsed.evidenceCount ?? {}, signalCount: (c.evidence ?? []).length || 1, daysSinceLastSignal: 0 });
-        repos.upsertOpportunity(
+        const oid = repos.upsertOpportunity(
           deps.db,
           { kind: c.kind ?? 'feature', angle: signalIds.find((s) => (c.evidence ?? []).includes(s.id))?.angle ?? 'product', dedupKey: c.dedupKey || `idea:${slug(c.title)}`, title: c.title, thesis: c.thesis, whyNow: c.whyNow, fit: c.fit, featureJson, sourcesJson: JSON.stringify(c.sources ?? []), signalCount: (c.evidence ?? []).length || 1, lastSignalAt: at },
           scoreRes.score,
           DEFAULT_WEIGHTS.version,
           at,
         );
+        translatable.push({ id: oid, title: c.title, thesis: c.thesis ?? '', whyNow: c.whyNow ?? '', fit: c.fit ?? '' });
         opportunities += 1;
       }
       repos.rerankShown(deps.db);
+
+      // TRANSLATE owner-facing fields EN -> FR for display (the veille stayed English) ---
+      if (translatable.length) {
+        stage('TRANSLATE', `${translatable.length} opportunities`);
+        await translateOpps(deps, rs, translatable, at);
+      }
 
       // BRIEF top flagship (Opus, gated) ---------------------------------------
       briefs = await briefTopFlagships(deps, rs, at);
@@ -203,12 +211,25 @@ interface BriefRow {
   thesis: string;
   why_now: string;
   fit: string;
+  title_fr?: string;
+  why_now_fr?: string;
   sources_json: string;
   score: number;
 }
 
-// The deep concrete investigation for ONE opportunity: a single gated Opus feasibility pass ->
-// deterministic brief + Max prompt + "go deeper" prompt. The hybrid output.
+// Translate owner-facing opportunity fields EN -> FR (display only) and store in the _fr columns.
+async function translateOpps(deps: VeilleDeps, rs: RunState, items: { id: number; title: string; thesis: string; whyNow: string; fit: string }[], at: string): Promise<void> {
+  const t = await runSie(deps, rs, 'translate', translateOppsPrompt(items));
+  const parsed = parseJsonLoose<{ items?: { id: number; title?: string; thesis?: string; whyNow?: string; fit?: string }[] }>(t.text)?.items ?? [];
+  const upd = deps.db.prepare('UPDATE opportunity SET title_fr=?, thesis_fr=?, why_now_fr=?, fit_fr=?, updated_at=? WHERE id=?');
+  const tx = deps.db.transaction(() => {
+    for (const x of parsed) upd.run(x.title ?? null, x.thesis ?? null, x.whyNow ?? null, x.fit ?? null, at, x.id);
+  });
+  tx();
+}
+
+// The deep concrete investigation for ONE opportunity: a single gated Opus feasibility pass (English,
+// for quality) -> English Max prompt + a French-translated concrete brief for the owner to read.
 async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string): Promise<boolean> {
   const sources = (() => {
     try {
@@ -224,10 +245,17 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   });
   const f = parseJsonLoose<Feasibility>(fres.text);
   if (!f || !f.recommendation) return false;
-  const opp = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
+  const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
+  const maxPrompt = renderMaxPrompt(oppEn, f, r.score); // English (for the coding session)
+  const deeperPrompt = renderDeeperPrompt(oppEn, f);
+  // French brief for the owner to read.
+  const tr = await runSie(deps, rs, 'translate', translateFeasibilityPrompt({ verdict: f.verdict, concreteFindings: f.concreteFindings, unknowns: f.unknowns, approachSteps: f.approachSteps, dataModel: f.dataModel, outOfScope: f.outOfScope, acceptanceCriteria: f.acceptanceCriteria }));
+  const fFr: Feasibility = { ...f, ...(parseJsonLoose<Partial<Feasibility>>(tr.text) ?? {}) };
+  const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
+  const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
     .prepare('UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, spent_usd=spent_usd+?, updated_at=? WHERE id=?')
-    .run(renderBriefMd(opp, f, r.score), renderMaxPrompt(opp, f, r.score), renderDeeperPrompt(opp, f), fres.costUsd, at, r.id);
+    .run(briefMd, maxPrompt, deeperPrompt, fres.costUsd, at, r.id);
   return true;
 }
 
@@ -236,7 +264,7 @@ async function briefTopFlagships(deps: VeilleDeps, rs: RunState, at: string): Pr
   const topN = deps.cfg.SIE_BRIEF_TOP_N;
   if (topN <= 0) return 0;
   const rows = deps.db
-    .prepare(`SELECT id, title, thesis, why_now, fit, sources_json, score FROM opportunity WHERE flagship=1 AND brief_md IS NULL AND status='proposed' ORDER BY score DESC LIMIT ?`)
+    .prepare(`SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, score FROM opportunity WHERE flagship=1 AND brief_md IS NULL AND status='proposed' ORDER BY score DESC LIMIT ?`)
     .all(topN) as BriefRow[];
   let n = 0;
   for (const r of rows) {
@@ -253,7 +281,7 @@ export async function briefOpportunityById(deps: VeilleDeps, id: number): Promis
   const now = deps.now ?? new Date();
   const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
   if (cap.paused) return { ok: false, costUsd: 0, note: cap.reason };
-  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, sources_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
+  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
   if (!r) return { ok: false, costUsd: 0, note: 'not found' };
   const rs: RunState = { spentUsd: 0 };
   const at = now.toISOString();

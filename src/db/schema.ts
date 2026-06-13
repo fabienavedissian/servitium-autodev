@@ -159,10 +159,14 @@ CREATE TABLE IF NOT EXISTS opportunity (
   kind TEXT NOT NULL,                   -- feature|game|business|integration|pricing|tech-enabler
   angle TEXT NOT NULL,
   dedup_key TEXT NOT NULL,              -- slugified canonical noun e.g. 'game:rust'
-  title TEXT NOT NULL,
+  title TEXT NOT NULL,                   -- English canonical (used by downstream agents)
   thesis TEXT,
   why_now TEXT,
   fit TEXT,
+  title_fr TEXT,                         -- French display (translated; the veille itself stays English)
+  thesis_fr TEXT,
+  why_now_fr TEXT,
+  fit_fr TEXT,
   feature_json TEXT,                    -- {features:{8 in [0,1]}, justifications, evidence ids}
   weight_set_version INTEGER,
   sources_json TEXT,                    -- [{label,url}]

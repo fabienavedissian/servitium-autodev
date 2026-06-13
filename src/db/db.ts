@@ -22,6 +22,8 @@ function migrate(db: DB): void {
   // SIE budget scope: existing rows default to the build lane; the intel lane is opt-in per record().
   ensureColumn(db, 'spend_ledger', 'scope', "TEXT NOT NULL DEFAULT 'build'");
   db.exec('CREATE INDEX IF NOT EXISTS idx_spend_scope ON spend_ledger(scope, created_at)');
+  // French display columns (the veille reasons in English; only the owner-facing text is translated).
+  for (const c of ['title_fr', 'thesis_fr', 'why_now_fr', 'fit_fr']) ensureColumn(db, 'opportunity', c, 'TEXT');
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {
