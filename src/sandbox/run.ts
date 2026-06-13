@@ -46,21 +46,48 @@ export class LocalRunner implements SandboxRunner {
   }
 }
 
-// Linux no-network, non-root sandbox (bubblewrap). Wired when the box is available (plan O6).
-// The intended invocation bind-mounts ONLY the worktree, unshares the network, drops to a
-// non-root user, and runs npm with ignore-scripts. Throws until implemented on the box so a
-// misconfigured run can never silently execute untrusted code unsandboxed.
+// Linux no-network, non-root sandbox (bubblewrap). The whole filesystem is read-only; /home and
+// /root are masked with empty tmpfs (so the orchestrator's .env / ~/.ssh / prod creds are ABSENT),
+// the worktree is re-exposed writable on top, the network is unshared, and npm scripts are ignored.
+// Even hostile test code (jest.config.js, a malicious spec) has no secrets to read and nowhere to
+// exfiltrate to. extraRoBinds adds read-only paths (e.g. a shared mongod download cache).
 export class BubblewrapRunner implements SandboxRunner {
   readonly kind = 'bubblewrap';
+  private readonly local = new LocalRunner();
 
-  run(): CommandResult {
-    throw new Error(
-      'BubblewrapRunner is not wired yet (needs the Linux box, plan O6). Use LocalRunner for harness dev only.',
-    );
+  constructor(private readonly extraRoBinds: string[] = []) {}
+
+  run(command: string, args: string[], opts: RunOptions): CommandResult {
+    const bwrapArgs = buildBwrapArgs(opts.cwd, this.extraRoBinds, command, args);
+    const env = { ...(opts.env ?? process.env), npm_config_ignore_scripts: 'true' };
+    return this.local.run('bwrap', bwrapArgs, { cwd: opts.cwd, timeoutMs: opts.timeoutMs, env });
   }
 }
 
-export function selectRunner(env: NodeJS.ProcessEnv = process.env): SandboxRunner {
-  if (process.platform === 'linux' && env.AUTODEV_SANDBOX === 'bwrap') return new BubblewrapRunner();
+// Pure bwrap argument builder (unit-tested). No-network, read-only root, /home + /root masked with
+// empty tmpfs (secrets absent), worktree re-exposed writable, npm scripts ignored.
+export function buildBwrapArgs(worktree: string, extraRoBinds: string[], command: string, args: string[]): string[] {
+  const a = [
+    '--unshare-net',
+    '--unshare-ipc',
+    '--unshare-uts',
+    '--die-with-parent',
+    '--new-session',
+    '--ro-bind', '/', '/',
+    '--tmpfs', '/home',
+    '--tmpfs', '/root',
+    '--tmpfs', '/tmp',
+    '--proc', '/proc',
+    '--dev', '/dev',
+    '--bind', worktree, worktree,
+  ];
+  for (const b of extraRoBinds) a.push('--ro-bind', b, b);
+  a.push('--chdir', worktree, '--setenv', 'HOME', worktree, '--setenv', 'npm_config_ignore_scripts', 'true', '--', command, ...args);
+  return a;
+}
+
+// Use the real sandbox on Linux when bubblewrap is available; LocalRunner elsewhere (harness dev).
+export function selectRunner(env: NodeJS.ProcessEnv = process.env, extraRoBinds: string[] = []): SandboxRunner {
+  if (process.platform === 'linux' && env.AUTODEV_SANDBOX !== 'off') return new BubblewrapRunner(extraRoBinds);
   return new LocalRunner();
 }

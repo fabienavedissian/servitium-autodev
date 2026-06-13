@@ -1,4 +1,4 @@
-import { LocalRunner, BubblewrapRunner, selectRunner } from '../src/sandbox/run';
+import { LocalRunner, buildBwrapArgs, selectRunner } from '../src/sandbox/run';
 
 describe('LocalRunner', () => {
   it('runs a command and captures stdout + exit code', () => {
@@ -24,8 +24,17 @@ describe('selectRunner', () => {
   });
 });
 
-describe('BubblewrapRunner', () => {
-  it('refuses to run until wired on the box', () => {
-    expect(() => new BubblewrapRunner().run()).toThrow(/not wired/i);
+describe('buildBwrapArgs', () => {
+  it('builds a no-network, secret-masked, worktree-writable sandbox invocation', () => {
+    const a = buildBwrapArgs('/wt/task', ['/cache/mongod'], 'npx', ['jest']);
+    expect(a).toContain('--unshare-net');
+    expect(a).toContain('--tmpfs'); // /home and /root masked
+    expect(a.join(' ')).toContain('--tmpfs /home');
+    expect(a.join(' ')).toContain('--tmpfs /root');
+    expect(a.join(' ')).toContain('--bind /wt/task /wt/task');
+    expect(a.join(' ')).toContain('--ro-bind /cache/mongod /cache/mongod');
+    // the actual command comes after the -- separator
+    const sep = a.indexOf('--', 1);
+    expect(a.slice(sep + 1)).toEqual(['npx', 'jest']);
   });
 });
