@@ -44,7 +44,9 @@ function captureBaselines(
     }
   }
   log?.(`capturing baselines (jest + tsc) for ${sha.slice(0, 7)} — one-time, several minutes`);
-  const failingTests = runJestJson(host, worktree, [], 600_000).failures;
+  // Baseline MUST run in the same (sandboxed) environment as the tests-green gate, else env
+  // differences (network, mongod, speed) produce false "new failures".
+  const failingTests = runJestJson(selectRunner(), worktree, [], 900_000).failures;
   const t = host.run('npx', ['tsc', '--noEmit', '-p', 'tsconfig.json'], { cwd: worktree, timeoutMs: 600_000 });
   const tscErrors = `${t.stdout}\n${t.stderr}`.split('\n').map((l) => l.trim()).filter((l) => /error TS\d+:/.test(l));
   const baselines = { failingTests, tscErrors };

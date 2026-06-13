@@ -23,7 +23,7 @@ export function runJestJson(
   }
   const r = runner.run(
     'npx',
-    ['jest', '--runInBand', '--ci', '--forceExit', '--json', `--outputFile=${outFile}`, ...extraArgs],
+    ['jest', '--maxWorkers=4', '--ci', '--forceExit', '--testTimeout=30000', '--json', `--outputFile=${outFile}`, ...extraArgs],
     { cwd: worktreeRoot, timeoutMs },
   );
   let content = '';
