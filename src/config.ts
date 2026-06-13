@@ -28,6 +28,8 @@ const ConfigSchema = z.object({
 
   // Dashboard.
   DASH_SESSION_SECRET: z.string().optional(),
+  DASH_USER: z.string().optional(),
+  DASH_PASSWORD_SHA256: z.string().optional(),
   API_AUTH_URL: z.string().default('https://api.servitium.org/auth/login'),
   COOKIE_DOMAIN: z.string().default('.servitium.org'),
 

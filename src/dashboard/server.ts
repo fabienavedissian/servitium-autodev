@@ -69,10 +69,29 @@ const server = http.createServer(async (req, res) => {
   // Auth
   if (p === '/api/login' && req.method === 'POST') {
     const body = await readBody(req);
+    const email = String(body.email ?? body.login ?? '');
+    const password = String(body.password ?? '');
+    const setCookie = `autodev_sess=${makeSession()}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800`;
+
+    // Preferred: a dedicated dashboard credential (hashed at rest in .env).
+    if (cfg.DASH_USER && cfg.DASH_PASSWORD_SHA256) {
+      const hash = crypto.createHash('sha256').update(password).digest('hex');
+      const userOk = email.toLowerCase() === cfg.DASH_USER.toLowerCase();
+      let passOk = false;
+      try {
+        passOk = crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(cfg.DASH_PASSWORD_SHA256));
+      } catch {
+        passOk = false;
+      }
+      if (userOk && passOk) return send(res, 200, { ok: true }, { 'set-cookie': setCookie });
+      return send(res, 401, { error: 'invalid credentials' });
+    }
+
+    // Fallback: validate against the Servitium API.
     try {
       const r = await fetch(cfg.API_AUTH_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) return send(res, 401, { error: 'invalid credentials' });
-      return send(res, 200, { ok: true }, { 'set-cookie': `autodev_sess=${makeSession()}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800` });
+      return send(res, 200, { ok: true }, { 'set-cookie': setCookie });
     } catch (e) {
       log.error({ e: String(e) }, 'login upstream failed');
       return send(res, 502, { error: 'auth upstream unreachable' });
