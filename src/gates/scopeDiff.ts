@@ -8,7 +8,7 @@ import { fail, pass, type Gate, type GateContext, type GateResult } from './inde
 // untracked) must sit inside allowed_paths, and no new symlink may be introduced (mode 120000).
 const git = new LocalRunner();
 
-export const scopeDiffGate: Gate = {
+export const scopeDiffGate = {
   name: 'scope-diff',
   run(ctx: GateContext): GateResult {
     const raw = git.run('git', ['diff', '--raw', ctx.baseRef], { cwd: ctx.worktreeRoot });
@@ -38,7 +38,7 @@ export const scopeDiffGate: Gate = {
     if (offending.length) return fail('scope-diff', { reason: 'outside allowed_paths', offending });
     return pass('scope-diff', { offending: 0 });
   },
-};
+} satisfies Gate;
 
 function isSymlink(p: string): boolean {
   try {
