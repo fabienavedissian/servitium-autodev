@@ -44,7 +44,7 @@ function renderLogin() {
 
 /* ---------- Shell ---------- */
 function renderShell() {
-  const nav = [['overview', 'Overview'], ['proposals', 'Proposals'], ['runs', 'Runs']];
+  const nav = [['overview', 'Overview'], ['opportunities', 'Opportunities'], ['logbook', 'Logbook'], ['proposals', 'Proposals'], ['runs', 'Runs']];
   $('#app').innerHTML = '';
   const shell = h(`
     <div class="shell">
@@ -66,6 +66,8 @@ function route() {
   document.querySelectorAll('.nav a[data-v]').forEach((a) => a.classList.toggle('active', a.dataset.v === VIEW));
   if (OPEN_RUN) return renderRunDetail(OPEN_RUN);
   if (VIEW === 'overview') renderOverview();
+  else if (VIEW === 'opportunities') renderOpportunities();
+  else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'proposals') renderProposals();
   else renderRuns();
 }
@@ -126,6 +128,99 @@ function wireProp(card) {
     await api(`/proposals/${card.dataset.id}/decide`, { method: 'POST', body: JSON.stringify({ status: b.dataset.act }) });
     toast(b.dataset.act === 'approved' ? 'Approved' : 'Rejected'); renderProposals();
   }));
+}
+
+/* ---------- Opportunities (Intelligence Engine) ---------- */
+const scoreClass = (s) => (s >= 85 ? 'flag' : s >= 65 ? 'good' : 'mid');
+async function renderOpportunities() {
+  const [ov, list] = await Promise.all([api('/sie/overview'), api('/opportunities?status=open')]);
+  const last = ov.lastRun;
+  const lastTxt = last ? `last veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opps · ${usd(last.cost_usd)}` : 'no veille run yet';
+  const cap = 45, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2>Opportunities</h2><div class="muted">${lastTxt}</div></div>
+      <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="live"></span><button class="btn" id="run-now">Run veille now</button></div></div>
+    <div class="grid kpis">
+      <div class="card kpi"><div class="label">Open opportunities</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} flagship</div></div>
+      <div class="card kpi"><div class="label">Intel spend (month)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">cap ${usd(cap)}</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
+    </div>
+    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">No opportunities yet. Click "Run veille now" — a daily web scan will surface ranked, sourced opportunities.</div>'}</div>`;
+  $('#run-now').addEventListener('click', async () => { try { await api('/sie/run-now', { method: 'POST', body: '{}' }); toast('Veille started — it will land live here.'); } catch { toast('A veille is already running.'); } });
+  $('#view').querySelectorAll('.opp').forEach(wireOpp);
+}
+function oppCard(o) {
+  const b = o.breakdown || { bars: [] };
+  const sources = (o.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label || 'source')} ↗</a>`).join(' · ');
+  const bars = b.bars.map((bar) => `<div class="bd-row" title="${esc(bar.why)}"><span class="bd-k">${esc(bar.key)}</span><div class="bd-bar"><span style="width:${Math.round((bar.value || 0) * 100)}%"></span></div><span class="bd-w">x${bar.weight}</span><span class="bd-ev ${bar.evidence ? '' : 'none'}">${bar.evidence ? 'sourced' : 'no ev'}</span></div>`).join('');
+  return `<div class="opp" data-id="${o.id}">
+    <div class="opp-head">
+      <div class="opp-score ${scoreClass(o.score)}">${o.score ?? '?'}</div>
+      <div class="opp-main">
+        <div class="opp-title">#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">flagship</span>' : ''} ${o.seen_before ? '<span class="chip seen">seen before</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">relevant</span>' : o.relevance === -1 ? '<span class="chip no-chip">noise</span>' : ''}</div>
+        <div class="opp-meta"><span class="chip ${esc(o.kind)}">${esc(o.kind)}</span><span class="chip">${esc(o.angle)}</span>${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief ready</span>' : ''}</div>
+        ${o.thesis ? `<div class="opp-thesis">${esc(o.thesis)}</div>` : ''}
+      </div>
+      <button class="btn ghost toggle">Details</button>
+    </div>
+    <div class="opp-body">
+      ${o.why_now ? `<p><b>Why now.</b> ${esc(o.why_now)}</p>` : ''}
+      ${o.fit ? `<p><b>Fit.</b> ${esc(o.fit)}</p>` : ''}
+      ${sources ? `<div class="evidence"><b>Sources:</b> ${sources}</div>` : ''}
+      <div class="breakdown"><div class="bd-title">Why this score (8 features x weights, code-computed)</div>${bars}</div>
+      <div class="brief-zone"></div>
+      ${o.has_brief ? `<div class="brief-actions"><button class="btn ok" data-copy="max">Copy Max prompt</button><button class="btn ghost" data-copy="deeper">Copy "go deeper" prompt</button><button class="btn ghost" data-view-brief>View brief</button></div>` : '<div class="muted small">Greenlight this to get a deep concrete brief + ready-to-paste Max prompt.</div>'}
+      <div class="opp-actions">
+        <button class="btn ok" data-act="greenlight">Greenlight</button>
+        <button class="btn" data-act="accept">Accept</button>
+        <button class="btn no" data-act="reject">Reject</button>
+        <span class="spacer-x"></span>
+        <button class="btn ghost" data-act="thumbs_up" title="signal was relevant">Relevant</button>
+        <button class="btn ghost" data-act="thumbs_down" title="noise">Noise</button>
+      </div>
+      <div class="comment-box small"><textarea data-comment placeholder="Steer the engine: why you like/dislike this (feeds future ranking)..."></textarea><button class="btn ghost" data-send-comment>Send</button></div>
+    </div></div>`;
+}
+function wireOpp(card) {
+  const id = card.dataset.id;
+  card.querySelector('.toggle').addEventListener('click', () => card.classList.toggle('open'));
+  card.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
+    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: btn.dataset.act }) });
+    toast('Recorded: ' + btn.dataset.act.replace('_', ' '));
+  }));
+  card.querySelector('[data-send-comment]')?.addEventListener('click', async () => {
+    const txt = card.querySelector('[data-comment]').value.trim();
+    if (!txt) return;
+    await api(`/opportunities/${id}/decide`, { method: 'POST', body: JSON.stringify({ action: 'comment', comment: txt }) });
+    card.querySelector('[data-comment]').value = ''; toast('Comment recorded');
+  });
+  card.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
+    const d = await api(`/opportunities/${id}`);
+    const text = btn.dataset.copy === 'max' ? d.max_prompt : d.deeper_prompt;
+    try { await navigator.clipboard.writeText(text || ''); toast('Copied. Paste into Claude Code Max.'); } catch { toast('Copy failed — open the brief.'); }
+  }));
+  card.querySelector('[data-view-brief]')?.addEventListener('click', async () => {
+    const zone = card.querySelector('.brief-zone');
+    if (zone.dataset.open) { zone.innerHTML = ''; zone.dataset.open = ''; return; }
+    const d = await api(`/opportunities/${id}`);
+    zone.innerHTML = `<pre class="brief">${esc(d.brief_md || '(no brief)')}</pre>`; zone.dataset.open = '1';
+  });
+}
+
+/* ---------- Logbook ---------- */
+const KIND_LABEL = { veille: 'veille', decided: 'decided', did: 'did', want: 'want', can: 'can', note: 'note', spent: 'spent' };
+async function renderLogbook() {
+  const feed = await api('/logbook');
+  const byDay = {};
+  feed.forEach((l) => { (byDay[l.dated_on] = byDay[l.dated_on] || []).push(l); });
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2>Logbook</h2><div class="muted">The carnet de bord: what the engine did, what we want, what we can do.</div></div><span class="live-dot" title="live"></span></div>
+    <div class="card"><div class="comment-box"><textarea id="lb-note" placeholder="Add a note (want / can / idea)..."></textarea><button class="btn" id="lb-send">Add</button></div></div>
+    <div class="logbook">${Object.keys(byDay).length ? Object.entries(byDay).map(([day, items]) => `<div class="lb-day"><div class="lb-date">${esc(day)}</div>${items.map((l) => `<div class="lb-line"><span class="chip kind ${esc(l.kind)}">${esc(KIND_LABEL[l.kind] || l.kind)}</span><span class="lb-sum">${esc(l.summary)}</span>${l.source === 'owner' ? '<span class="muted small">you</span>' : ''}</div>`).join('')}</div>`).join('') : '<div class="empty">Empty. The first veille will start writing the carnet.</div>'}</div>`;
+  $('#lb-send').addEventListener('click', async () => {
+    const v = $('#lb-note').value.trim(); if (!v) return;
+    await api('/logbook', { method: 'POST', body: JSON.stringify({ kind: 'want', summary: v }) });
+    $('#lb-note').value = ''; renderLogbook();
+  });
 }
 
 /* ---------- Runs ---------- */
@@ -240,8 +335,11 @@ function connectWs() {
 }
 function applyChanged(msg) {
   if (msg.type !== 'changed') return;
+  if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // don't clobber typing
   if (OPEN_RUN) return updateRunDetailLive();
   if (VIEW === 'overview') renderOverview();
+  else if (VIEW === 'opportunities') renderOpportunities();
+  else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'runs') renderRuns();
 }
 async function updateRunDetailLive() {

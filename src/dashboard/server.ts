@@ -6,8 +6,10 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { openDb } from '../db/db';
 import { loadConfig } from '../config';
 import { createLogger } from '../log';
+import { spawn } from 'child_process';
 import { tasksByState, costSince, recentRuns, runDetail, addComment } from './queries';
 import { listProposals, decideProposal, proposalCounts, type ProposalStatus } from './proposals';
+import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, type DecideAction } from './opportunities';
 
 const cfg = loadConfig();
 const log = createLogger(cfg);
@@ -138,6 +140,46 @@ const server = http.createServer(async (req, res) => {
       decideProposal(db, Number(decideMatch[1]), status, (body.comment as string) ?? null, new Date().toISOString());
       return send(res, 200, { ok: true });
     }
+    // ── Intelligence Engine (SIE) ──────────────────────────────────────────
+    if (p === '/api/sie/overview') return send(res, 200, sieOverview(db, startMonth));
+    if (p === '/api/sie/runs') return send(res, 200, recentSenseRuns(db));
+    if (p === '/api/opportunities') return send(res, 200, listOpportunities(db, url.searchParams.get('status') ?? 'open'));
+    const oppMatch = /^\/api\/opportunities\/(\d+)$/.exec(p);
+    if (oppMatch && req.method === 'GET') {
+      const d = opportunityDetail(db, Number(oppMatch[1]));
+      return d ? send(res, 200, d) : send(res, 404, { error: 'not found' });
+    }
+    const oppDecide = /^\/api\/opportunities\/(\d+)\/decide$/.exec(p);
+    if (oppDecide && req.method === 'POST') {
+      const body = await readBody(req);
+      const action = String(body.action) as DecideAction;
+      if (!['accept', 'reject', 'greenlight', 'comment', 'thumbs_up', 'thumbs_down'].includes(action)) return send(res, 400, { error: 'bad action' });
+      decideOpportunity(db, Number(oppDecide[1]), action, (body.comment as string)?.slice(0, 4000) ?? null, new Date().toISOString());
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/logbook' && req.method === 'GET') return send(res, 200, logbookFeed(db));
+    if (p === '/api/logbook' && req.method === 'POST') {
+      const body = await readBody(req);
+      const summary = String(body.summary ?? '').slice(0, 1000);
+      const kind = ['want', 'can', 'did', 'note'].includes(String(body.kind)) ? String(body.kind) : 'note';
+      if (!summary.trim()) return send(res, 400, { error: 'empty' });
+      addLogbookNote(db, kind, summary, new Date().toISOString());
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/sie/run-now' && req.method === 'POST') {
+      const today = new Date().toISOString().slice(0, 10);
+      const running = db.prepare("SELECT 1 FROM sie_run WHERE run_date=? AND status='running'").get(today);
+      if (running) return send(res, 409, { error: 'a veille is already running' });
+      const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-veille.js', '--force'], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore',
+        env: process.env,
+      });
+      child.unref();
+      return send(res, 200, { ok: true, started: true });
+    }
+
     if (p === '/api/stream') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       const tick = (): void => {
@@ -196,7 +238,17 @@ setInterval(() => {
   };
   const runs = recentRuns(db, 50);
   const maxStep = (db.prepare('SELECT COALESCE(MAX(id),0) AS m FROM step').get() as { m: number }).m;
-  const fp = JSON.stringify([overview.tasksByState, overview.proposals, overview.costTodayUsd, maxStep, runs.map((r) => [r.id, r.state, r.steps, r.spent_usd, r.detail])]);
+  // SIE live signals: any opportunity change, new veille run/status, or logbook line pushes instantly.
+  const sieFp = db
+    .prepare(
+      `SELECT (SELECT COALESCE(MAX(id),0) FROM opportunity) AS mo,
+              (SELECT COALESCE(MAX(updated_at),'') FROM opportunity) AS mou,
+              (SELECT COALESCE(MAX(id),0) FROM sie_run) AS mr,
+              (SELECT status FROM sie_run ORDER BY id DESC LIMIT 1) AS rs,
+              (SELECT COALESCE(MAX(id),0) FROM logbook) AS ml`,
+    )
+    .get();
+  const fp = JSON.stringify([overview.tasksByState, overview.proposals, overview.costTodayUsd, maxStep, runs.map((r) => [r.id, r.state, r.steps, r.spent_usd, r.detail]), sieFp]);
   if (fp === lastFp) return;
   lastFp = fp;
   broadcast({ type: 'changed', overview, runs });

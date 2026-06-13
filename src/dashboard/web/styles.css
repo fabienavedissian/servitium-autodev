@@ -179,3 +179,51 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .done-note { padding: 14px 16px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel); color: var(--txt-dim); margin-top: 4px; }
 .done-note.ok { color: var(--green); border-color: #234b3a; }
 .done-note.err { color: var(--amber); border-color: #5a4320; }
+
+/* ── Intelligence Engine: Opportunities ───────────────────────────────────── */
+#opps { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+.opp { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.opp-head { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; }
+.opp-score { flex: none; width: 46px; height: 46px; border-radius: 11px; display: grid; place-items: center; font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; border: 1px solid var(--line); }
+.opp-score.flag { color: var(--accent-2); background: #1b1733; border-color: #2e2657; }
+.opp-score.good { color: var(--green); background: #122; border-color: #1d3a30; }
+.opp-score.mid { color: var(--amber); background: #221c11; border-color: #3a2f1d; }
+.opp-main { flex: 1; min-width: 0; }
+.opp-title { font-weight: 600; font-size: 15px; }
+.opp-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.opp-thesis { color: var(--txt-dim); margin-top: 7px; font-size: 13px; }
+.opp-body { display: none; padding: 0 16px 16px 16px; border-top: 1px solid var(--line); }
+.opp.open .opp-body { display: block; }
+.opp-body p { margin: 12px 0; }
+.evidence { font-size: 13px; color: var(--txt-dim); margin: 10px 0; }
+.evidence a { margin-right: 4px; }
+.breakdown { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 12px 0; }
+.bd-title { font-size: 12px; color: var(--txt-dim); margin-bottom: 8px; }
+.bd-row { display: grid; grid-template-columns: 120px 1fr 40px 60px; gap: 8px; align-items: center; padding: 3px 0; font-size: 12px; }
+.bd-k { color: var(--txt-dim); }
+.bd-bar { background: #0e1320; border-radius: 6px; height: 9px; overflow: hidden; }
+.bd-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.bd-w { color: var(--txt-dim); text-align: right; font-variant-numeric: tabular-nums; }
+.bd-ev { font-size: 10.5px; color: var(--green); text-align: right; }
+.bd-ev.none { color: var(--red); opacity: 0.7; }
+.brief-zone .brief { white-space: pre-wrap; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; font: 12.5px/1.6 ui-monospace, monospace; max-height: 460px; overflow: auto; }
+.brief-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.opp-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.spacer-x { flex: 1; }
+.chip.flag { color: var(--accent-2); border-color: #2e2657; background: #1b1733; }
+.chip.seen { color: var(--amber); border-color: #3a2f1d; background: #221c11; }
+.chip.good-chip, .chip.ok-chip { color: var(--green); border-color: #1d3a30; background: #0f201a; }
+.chip.no-chip { color: var(--red); border-color: #3a1f25; background: #201115; }
+.small { font-size: 12px; }
+.comment-box.small textarea { min-height: 44px; }
+
+/* ── Logbook ───────────────────────────────────────────────────────────────── */
+.logbook { margin-top: 12px; }
+.lb-day { margin-bottom: 16px; }
+.lb-date { color: var(--txt-dim); font-size: 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.lb-line { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; }
+.lb-sum { flex: 1; }
+.chip.kind { text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+.chip.kind.veille { color: var(--accent); border-color: #234063; background: #11203a; }
+.chip.kind.decided { color: var(--accent-2); border-color: #2e2657; background: #1b1733; }
+.chip.kind.want, .chip.kind.can { color: var(--green); border-color: #1d3a30; background: #0f201a; }
