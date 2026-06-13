@@ -139,6 +139,24 @@ async function renderRuns() {
 }
 
 const ROLE_LABEL = { triage: 'Triage', spec: 'Spec', tdd: 'TDD (failing tests)', implement: 'Implement', review: 'Code review', challenger: 'Challenger', redteam: 'Red team', security: 'Security', final: 'Final review', validator: 'Validator' };
+const PHASE_DESC = {
+  PRE_GATE: 'Triage — deciding if the task is actionable', SPEC: 'Spec — writing the spec & acceptance criteria',
+  SPEC_APPROVAL: 'Awaiting spec approval', SETUP: 'Setup — clone, install deps, capture the test baseline (long prep)',
+  TESTS_FIRST: 'TDD — writing the failing test and running it', IMPLEMENT: 'Implement — writing the fix and running the gates',
+  CODE_REVIEW: 'Code review', CHALLENGE: 'Challenger — deep bug/security hunt (Opus, slower)',
+  RED_TEAM: 'Red team — trying to break it (Opus, slower)', SECURITY: 'Security — audit / semgrep / gitleaks',
+  FINAL_REVIEW: 'Final review', VALIDATE: 'Validator — preparing the draft PR',
+};
+const TERMINAL_STATES = ['DONE', 'FAILED', 'NEEDS_HUMAN', 'REJECTED', 'PR_READY'];
+function currentCard(task) {
+  const st = task.state;
+  if (st === 'DONE' || st === 'PR_READY') return `<div class="done-note ok">✓ Run complete — a draft PR is ready for your review.</div>`;
+  if (st === 'NEEDS_HUMAN') return `<div class="done-note err">⚠ Parked — needs your input. See the last step above for why.</div>`;
+  if (st === 'FAILED') return `<div class="done-note err">✕ Run failed. See the last step above.</div>`;
+  if (st === 'REJECTED') return `<div class="done-note">Rejected at triage.</div>`;
+  if (st === 'QUEUED') return `<div class="step running"><div class="step-head"><div class="spinner"></div><div class="step-title"><b>Queued — starting…</b></div></div></div>`;
+  return `<div class="step running"><div class="step-head"><div class="spinner"></div><div class="step-title"><b>${esc(PHASE_DESC[st] || st)}</b> <span class="muted">running…</span></div><div class="step-meta"><span class="chip outcome run">in progress</span></div></div></div>`;
+}
 
 async function renderRunDetail(id) {
   OPEN_RUN = id;
@@ -148,7 +166,7 @@ async function renderRunDetail(id) {
   $('#view').innerHTML = `
     <div class="topbar"><div><h2><a class="back" data-back>Runs</a> / #${t.id} ${esc(t.title)}</h2>
       <div class="muted" id="run-sub">${esc(t.repo)} · ${d.steps.length} steps · ${usd(t.spent_usd)} · <span class="chip state ${String(t.state).toLowerCase()}">${esc(t.state)}</span></div></div><span class="live-dot" title="live"></span></div>
-    <div class="timeline">${d.steps.length ? d.steps.map(renderStep).join('') : '<div class="empty">Run starting — steps will stream in here live.</div>'}</div>
+    <div class="timeline">${d.steps.map(renderStep).join('')}<div id="current">${currentCard(t)}</div></div>
     <div class="section-title">Steer this run</div>
     <div class="card"><div class="comment-box"><textarea id="cmt" placeholder="Leave a note the agent takes into account on the next step (e.g. 'put more effort on edge cases', 'also cover the refund path')..."></textarea><button class="btn" id="cmt-send">Send</button></div>
       ${(d.comments || []).map((c) => `<div class="cmt"><span class="muted">${esc((c.created_at || '').slice(0, 16).replace('T', ' '))}${c.consumed_at ? ' · taken into account' : ' · pending'}</span><div>${esc(c.body)}</div></div>`).join('')}</div>`;
@@ -230,16 +248,18 @@ async function updateRunDetailLive() {
   if (!d.task) return;
   const sub = $('#run-sub');
   if (sub) sub.innerHTML = `${esc(d.task.repo)} · ${d.steps.length} steps · ${usd(d.task.spent_usd)} · <span class="chip state ${String(d.task.state).toLowerCase()}">${esc(d.task.state)}</span>`;
-  const tl = $('.timeline');
-  if (tl && d.steps.length > RENDERED_STEPS) {
-    if (RENDERED_STEPS === 0) tl.innerHTML = '';
-    for (let i = RENDERED_STEPS; i < d.steps.length; i++) {
-      const node = h(renderStep(d.steps[i]));
-      node.querySelector('.step-head').addEventListener('click', () => node.classList.toggle('open'));
-      node.classList.add('appear');
-      tl.appendChild(node);
+  const cur = $('#current');
+  if (cur) {
+    if (d.steps.length > RENDERED_STEPS) {
+      for (let i = RENDERED_STEPS; i < d.steps.length; i++) {
+        const node = h(renderStep(d.steps[i]));
+        node.querySelector('.step-head').addEventListener('click', () => node.classList.toggle('open'));
+        node.classList.add('appear');
+        cur.parentElement.insertBefore(node, cur);
+      }
+      RENDERED_STEPS = d.steps.length;
     }
-    RENDERED_STEPS = d.steps.length;
+    cur.innerHTML = currentCard(d.task);
   }
 }
 

@@ -51,6 +51,10 @@ describe('isWriteAllowed', () => {
   it('allows a write inside an allowed subtree', () => {
     expect(isWriteAllowed(root, ['src/shop/**'], 'src/shop/new.ts').allowed).toBe(true);
   });
+
+  it('allows creating a file in a NEW (not-yet-existing) subdirectory inside allowed_paths', () => {
+    expect(isWriteAllowed(root, ['src/shop/**'], 'src/shop/newdir/deep/new.spec.ts').allowed).toBe(true);
+  });
   it('denies a write outside allowed_paths', () => {
     expect(isWriteAllowed(root, ['src/shop/**'], 'src/auth/login.ts').allowed).toBe(false);
   });

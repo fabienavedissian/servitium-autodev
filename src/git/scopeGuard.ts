@@ -64,13 +64,22 @@ export function isWriteAllowed(worktreeRoot: string, allowedGlobs: string[], tar
   if (!root) return { allowed: false, reason: 'worktree root does not resolve' };
 
   const abs = path.resolve(worktreeRoot, targetPath);
-
   if (isSymlink(abs)) return { allowed: false, reason: 'target is a symlink' };
 
-  const realParent = realpathSafe(path.dirname(abs));
-  if (!realParent) return { allowed: false, reason: 'parent directory does not resolve' };
+  // The target dir may not exist yet (fsWrite mkdir -p's it). Walk up to the nearest EXISTING
+  // ancestor and realpath THAT (defeats symlink escapes), then append the not-yet-existing tail.
+  let existing = path.dirname(abs);
+  const tail = [path.basename(abs)];
+  while (!fs.existsSync(existing)) {
+    tail.unshift(path.basename(existing));
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    existing = parent;
+  }
+  const realExisting = realpathSafe(existing);
+  if (!realExisting) return { allowed: false, reason: 'no resolvable ancestor directory' };
 
-  const realAbs = path.join(realParent, path.basename(abs));
+  const realAbs = path.join(realExisting, ...tail);
   if (!isInside(root, realAbs)) return { allowed: false, reason: 'path escapes the worktree' };
 
   const rel = path.relative(root, realAbs).split(path.sep).join('/');
