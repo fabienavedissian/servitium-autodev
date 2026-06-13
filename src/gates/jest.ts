@@ -1,7 +1,39 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { fail, pass, type Gate, type GateContext, type GateResult } from './index';
+import type { SandboxRunner } from '../sandbox/run';
 
 function tail(s: string, n = 4000): string {
   return s.length > n ? s.slice(-n) : s;
+}
+
+// Runs jest writing clean JSON to a file (servitium-api prints NestJS logs to stdout, so stdout
+// JSON is unparseable). Reads the file; falls back to stdout (for unit tests with a FakeRunner).
+export function runJestJson(
+  runner: SandboxRunner,
+  worktreeRoot: string,
+  extraArgs: string[],
+  timeoutMs: number,
+): { ran: boolean; failures: string[]; exitCode: number } {
+  const outFile = path.join(worktreeRoot, '.autodev-jest.json');
+  try {
+    fs.rmSync(outFile, { force: true });
+  } catch {
+    /* ignore */
+  }
+  const r = runner.run(
+    'npx',
+    ['jest', '--runInBand', '--ci', '--forceExit', '--json', `--outputFile=${outFile}`, ...extraArgs],
+    { cwd: worktreeRoot, timeoutMs },
+  );
+  let content = '';
+  try {
+    content = fs.readFileSync(outFile, 'utf8');
+  } catch {
+    /* fall back to stdout */
+  }
+  const parsed = parseJestJson(content || r.stdout || r.stderr);
+  return { ran: parsed.ran, failures: parsed.failures, exitCode: r.exitCode };
 }
 
 // Parse `jest --json` stdout into the set of failing test identifiers (file::fullName), plus
@@ -41,17 +73,14 @@ export function parseJestJson(stdout: string): { ran: boolean; failures: string[
 export const testsGreenGate = {
   name: 'tests-green',
   run(ctx: GateContext): GateResult {
-    const r = ctx.runner.run('npx', ['jest', '--runInBand', '--ci', '--json', '--forceExit'], { cwd: ctx.worktreeRoot, timeoutMs: 1_200_000 });
-    const parsed = parseJestJson(r.stdout || r.stderr);
-    if (!parsed.ran) {
-      return fail('tests-green', { reason: 'suite did not run', exitCode: r.exitCode, tail: tail(r.stderr || r.stdout) });
-    }
+    const res = runJestJson(ctx.runner, ctx.worktreeRoot, [], 1_200_000);
+    if (!res.ran) return fail('tests-green', { reason: 'suite did not run', exitCode: res.exitCode });
     const baseline = new Set(ctx.baselines?.failingTests ?? []);
-    const newFailures = parsed.failures.filter((f) => !baseline.has(f));
+    const newFailures = res.failures.filter((f) => !baseline.has(f));
     if (newFailures.length > 0) {
       return fail('tests-green', { newFailures: newFailures.slice(0, 30), newCount: newFailures.length, baselineFailures: baseline.size });
     }
-    return pass('tests-green', { totalFailures: parsed.failures.length, baselineFailures: baseline.size });
+    return pass('tests-green', { totalFailures: res.failures.length, baselineFailures: baseline.size });
   },
 } satisfies Gate;
 

@@ -4,7 +4,7 @@ import { ensureMirror } from '../git/mirror';
 import { addWorktree, removeWorktree } from '../git/worktree';
 import { LocalRunner, selectRunner } from '../sandbox/run';
 import { runTask } from './runTask';
-import { parseJestJson } from '../gates/jest';
+import { runJestJson } from '../gates/jest';
 import { composePrTitle, composePrBody } from '../github/pr';
 import type { AgentSdk } from '../sdk/client';
 import type { Ledger } from '../cost/ledger';
@@ -44,8 +44,7 @@ function captureBaselines(
     }
   }
   log?.(`capturing baselines (jest + tsc) for ${sha.slice(0, 7)} — one-time, several minutes`);
-  const j = host.run('npx', ['jest', '--runInBand', '--ci', '--json', '--forceExit'], { cwd: worktree, timeoutMs: 600_000 });
-  const failingTests = parseJestJson(j.stdout || j.stderr).failures;
+  const failingTests = runJestJson(host, worktree, [], 600_000).failures;
   const t = host.run('npx', ['tsc', '--noEmit', '-p', 'tsconfig.json'], { cwd: worktree, timeoutMs: 600_000 });
   const tscErrors = `${t.stdout}\n${t.stderr}`.split('\n').map((l) => l.trim()).filter((l) => /error TS\d+:/.test(l));
   const baselines = { failingTests, tscErrors };
