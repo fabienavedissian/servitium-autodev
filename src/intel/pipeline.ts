@@ -263,33 +263,46 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
     }
   })();
   deps.onStage?.('BRIEF', r.title);
-  const setDetail = (d: string, state = 'running'): void => {
+  const startIso = new Date().toISOString();
+  const maxTurns = SIE_ROLES.feasibility.maxTurns;
+  let turns = 0;
+  let searches = 0;
+  let reads = 0;
+  let activity = 'Investigation profonde lancée…';
+  const update = (state = 'running'): void => {
+    const pct = state === 'done' ? 100 : Math.min(95, Math.round((turns / maxTurns) * 100));
     try {
-      deps.db.prepare('UPDATE opportunity SET brief_state=?, detail=?, updated_at=? WHERE id=?').run(state, d, new Date().toISOString(), r.id);
+      deps.db
+        .prepare('UPDATE opportunity SET brief_state=?, brief_progress=?, detail=?, brief_started_at=COALESCE(brief_started_at,?), updated_at=? WHERE id=?')
+        .run(state, pct, `${activity}  ·  ${searches} recherches, ${reads} lectures`, startIso, new Date().toISOString(), r.id);
     } catch {
       /* trace best-effort */
     }
   };
-  setDetail('Investigation profonde lancée…');
-  let searches = 0;
-  let reads = 0;
+  update();
   const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' ')), {
     allowedTools: ['WebSearch', 'WebFetch'],
     maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
     onMessage: (msg) => {
+      if (msg.type === 'assistant') turns += 1;
       const t = traceFromMsg(msg);
-      if (!t) return;
-      if (t.startsWith('Recherche')) searches += 1;
-      else if (t.startsWith('Lecture')) reads += 1;
-      setDetail(`${t}  ·  ${searches} recherches, ${reads} lectures`);
+      if (t) {
+        if (t.startsWith('Recherche')) searches += 1;
+        else if (t.startsWith('Lecture')) reads += 1;
+        activity = t;
+      }
+      update();
     },
   });
   const f = parseJsonLoose<Feasibility>(fres.text);
   if (!f || !f.recommendation) {
-    setDetail('Investigation sans résultat exploitable - réessaie.', 'failed');
+    activity = 'Investigation sans résultat exploitable - réessaie.';
+    update('failed');
     return false;
   }
-  setDetail('Rédaction et traduction du brief…');
+  activity = 'Rédaction et traduction du brief…';
+  turns = maxTurns;
+  update();
   const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
   const maxPrompt = renderMaxPrompt(oppEn, f, r.score); // English (for the coding session)
   const deeperPrompt = renderDeeperPrompt(oppEn, f);
@@ -299,7 +312,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
   const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
-    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, recommendation=?, unknowns_count=?, brief_state='done', detail=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
+    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, recommendation=?, unknowns_count=?, brief_state='done', brief_progress=100, detail=NULL, brief_started_at=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
     .run(briefMd, maxPrompt, deeperPrompt, f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
   return true;
 }

@@ -183,8 +183,18 @@ function oppMetaHTML(o) {
   return `<span class="chip src-${o.source_kind === 'code' ? 'code' : 'web'}">${o.source_kind === 'code' ? 'code' : 'web'}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span>${o.source_kind === 'code' && o.repo ? `<span class="chip">${esc(String(o.repo).replace('servitium-', ''))}</span>` : `<span class="chip">${esc(o.angle)}</span>`}${o.status !== 'proposed' ? `<span class="chip">${esc(o.status)}</span>` : ''}${o.has_brief ? '<span class="chip good-chip">brief prêt</span>' : ''}`;
 }
 function pqClass(q) { return q >= 75 ? 'good' : q >= 55 ? 'mid' : 'low'; }
+function fmtDur(sec) { if (sec < 60) return Math.round(sec) + ' s'; const m = Math.floor(sec / 60); const s = Math.round(sec % 60); return m + ' min' + (s ? ' ' + s + ' s' : ''); }
 function briefActionsHTML(o) {
-  if (o.brief_state === 'running') return `<div class="brief-running"><div class="spinner"></div><span class="trace">${esc(o.detail || 'Investigation profonde en cours…')}</span></div>`;
+  if (o.brief_state === 'running') {
+    const pct = Math.max(2, Math.min(100, o.brief_progress || 0));
+    let eta = '';
+    if (o.brief_started_at && pct > 4 && pct < 100) {
+      const elapsed = (Date.now() - Date.parse(o.brief_started_at)) / 1000;
+      const remaining = Math.round((elapsed * (100 - pct)) / pct);
+      if (remaining > 0 && remaining < 3600) eta = ` · ~${fmtDur(remaining)} restantes`;
+    }
+    return `<div class="brief-running"><div class="brief-prog"><div class="brief-prog-head"><span class="trace">${esc(o.detail || 'Investigation profonde en cours…')}</span><span class="brief-pct">${pct}%${eta}</span></div><div class="bar"><span style="width:${pct}%"></span></div></div></div>`;
+  }
   if (o.brief_state === 'failed' && !o.has_brief) return `<button class="btn ok" data-brief>Relancer l'investigation</button><span class="muted small">${esc(o.detail || 'échec')}</span>`;
   if (!o.has_brief) return `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus profonde (~5-10 min) → brief concret + prompt Max</span>`;
   const pq = o.promptQuality != null
@@ -272,7 +282,7 @@ function patchOppCard(card, o) {
   const t = card.querySelector('.opp-title'); if (t) t.innerHTML = oppTitleHTML(o);
   const m = card.querySelector('.opp-meta'); if (m) m.innerHTML = oppMetaHTML(o);
   const ba = card.querySelector('.brief-actions');
-  const sig = `${o.brief_state || ''}|${o.has_brief ? 1 : 0}|${o.detail || ''}`;
+  const sig = `${o.brief_state || ''}|${o.has_brief ? 1 : 0}|${o.brief_progress || 0}|${o.detail || ''}`;
   if (ba && ba.dataset.sig !== sig) { ba.innerHTML = briefActionsHTML(o); ba.dataset.sig = sig; wireBriefActions(card); }
 }
 async function updateOpportunitiesLive() {
