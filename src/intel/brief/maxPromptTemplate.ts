@@ -1,4 +1,4 @@
-import { CONVENTIONS } from '../../agents/prompts';
+import { MAX_CONVENTIONS } from '../../agents/prompts';
 import { getAppContext, testRuleFor } from '../appContext';
 import { kindPlaybook, kindLabel } from '../kindPlaybooks';
 
@@ -161,9 +161,17 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
     `  UI/copy. No em-dashes in user-facing copy.`,
     `- Match each app's OWN test harness + TypeScript strictness (see "Tests" below). NEVER write a mongodb-memory-server`,
     `  test outside servitium-api.`,
-    `- Secure the new surface: any new endpoint carries the right guards (never accidentally @Public, correct guard order);`,
-    `  any value passed into an RCON command, a Mongo query, a file path or a shell is validated/escaped (RCON command`,
-    `  injection and path issues are real past bugs); never trust a client-supplied flag; validate + sanitize all new input.`,
+    `- API authorization is MANDATORY: every new or changed endpoint enforces the role/permission system — the right guards`,
+    `  (JwtAuthGuard + RolesGuard / ServerRoleGuard / PermissionGuard / EntitlementGuard) in the correct order (ServerRoleGuard`,
+    `  FIRST; OWNER derives from Server.ownerId), with the most restrictive role/permission that fits. Never leave an endpoint`,
+    `  @Public or unguarded by accident.`,
+    `- Secure the new surface: any value passed into an RCON command, a Mongo query, a file path or a shell is validated/`,
+    `  escaped (RCON command injection and path issues are real past bugs); never trust a client-supplied flag; validate +`,
+    `  sanitize all new input.`,
+    `- ALWAYS ship the unit tests/specs: every change is covered by its own test using the touched app's harness (API = a`,
+    `  green mongodb-memory-server integration spec; Center/ui/Discord = an Angular TestBed/karma spec; the agent + autodev =`,
+    `  a jest spec). Mandatory on EVERY change — never ship code without its spec. (servitium-portal is the only no-harness`,
+    `  exception: production build + visual check.)`,
     `- Finish GREEN: run the verification commands and fix everything until they pass before you declare done.`,
     ``,
     `Work in the Servitium monorepo (E:\\Servitium Project). Read CLAUDE.md and the memory index at`,
@@ -226,7 +234,7 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
     `  seam and flag it for me — never hard-code an unconfirmed assumption deep in the code.`,
     ``,
     `# Non-negotiable conventions`,
-    CONVENTIONS,
+    MAX_CONVENTIONS,
     ``,
     `# Acceptance criteria (the task is DONE only when every one of these is objectively met)`,
     list(f.acceptanceCriteria),
@@ -243,7 +251,8 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
       'Every acceptance criterion is met and you can point to the code that satisfies it.',
       'Existing games/features still work: the existing test suites of every touched app pass, and no shipped behavior changed.',
       'No shared contract left half-updated: every consumer of a changed enum/type is updated, the canonical enum and its duplicate match.',
-      'Tests are written with each touched app\'s correct harness and are GREEN.',
+      'Every new/changed API endpoint enforces the correct role/permission guards (none left @Public or unguarded by accident).',
+      'EVERY change ships its unit test(s)/spec(s) with the touched app\'s harness and they are GREEN (portal: build + visual).',
       'New user-visible strings are localized in all 6 languages; no emoji; no leaked internals/filenames.',
       'The verification commands all pass (build green).',
       ...(f.reviewChecklist ?? []),

@@ -11,16 +11,27 @@ export interface TaskContext {
   sensitive?: boolean;
 }
 
-export const CONVENTIONS = [
+// Universal Servitium rules — shared by the human-run Max prompt AND the autonomous build lane.
+const BASE_CONVENTIONS = [
   'Servitium conventions you MUST follow:',
-  '- Tests are PER-REPO: servitium-api = green mongodb-memory-server integration test; servitium-center/-discord/-ui = Angular TestBed/karma spec; servitium-portal has NO test harness (verify by production build + visual check); servitium-electron-gui = jest with stubbed IO; servitium-autodev = jest+ts-jest. NEVER write a mongodb-memory-server test in a non-API repo.',
+  '- ALWAYS ship the unit test(s)/spec(s) WITH the code — mandatory on every change, no exception. Per repo: servitium-api = green mongodb-memory-server integration spec; servitium-center/-discord/-ui = Angular TestBed/karma spec; servitium-electron-gui = jest with stubbed IO; servitium-autodev = jest+ts-jest. NEVER write a mongodb-memory-server test in a non-API repo. (servitium-portal is the SOLE exception: no harness, verify by production build + visual check.)',
+  '- API authorization: every new or changed endpoint MUST enforce the role/permission system — the correct guards (JwtAuthGuard + RolesGuard / ServerRoleGuard / PermissionGuard / EntitlementGuard) in the right order (ServerRoleGuard FIRST; OWNER derives from Server.ownerId), with the most restrictive role/permission that fits. Never leave an endpoint @Public or unguarded by accident.',
   '- TypeScript strictness: the servitium-api tsconfig is NON-strict; every Angular repo + servitium-electron-gui + servitium-autodev are STRICT (no implicit any, templates type-check).',
   '- Comments: extremely sparse, English only, one short line, only when the WHY is non-obvious. Often zero.',
   '- No emoji in user-facing strings; route them through the i18n localize pipe (6 languages).',
   '- Never expose raw filenames or internal infra in user-facing copy. No em-dashes in user-facing copy.',
+];
+
+// Build-lane-only: the sandboxed agents have no shell/editor and mutate via the fsWrite MCP tool.
+// (Intentionally NOT in the human-run Max prompt, which uses real Edit/Write/Bash tools.)
+const BUILD_LANE_CONVENTIONS = [
   '- Keep the change ATOMIC and strictly inside allowed_paths. You have NO raw shell or editor:',
   '  mutate files only via the mcp__autodev__fsWrite tool, and run checks via mcp__autodev__runGate.',
-].join('\n');
+];
+
+export const CONVENTIONS = [...BASE_CONVENTIONS, ...BUILD_LANE_CONVENTIONS].join('\n');
+// For the ready-to-paste Max prompt (real tools): the universal rules without the fsWrite/runGate line.
+export const MAX_CONVENTIONS = BASE_CONVENTIONS.join('\n');
 
 function header(ctx: TaskContext): string {
   return [
