@@ -13,6 +13,7 @@ import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPr
 import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility, type ImpactedApp } from './brief/maxPromptTemplate';
 import { setActiveDossier, SERVITIUM_DOSSIER } from './dossier';
 import { isGameOpp, getAppContext, testRuleFor, canonicalApp } from './appContext';
+import { syncRepos, CODESCAN_ROOT, SERVITIUM_REPOS } from './repoSync';
 import { kvGet } from './learning';
 
 // Base dossier (auto-refreshed) + the owner's authoritative strategic corrections (never overwritten
@@ -67,6 +68,9 @@ export function traceFromMsg(msg: Record<string, unknown>): string | null {
       const q = String(block.input?.query ?? block.input?.url ?? '').slice(0, 80);
       if (block.name === 'WebSearch') return `Recherche : ${q}`;
       if (block.name === 'WebFetch') return `Lecture : ${q}`;
+      if (block.name === 'Read') return `Lecture code : ${String(block.input?.file_path ?? '').slice(0, 80)}`;
+      if (block.name === 'Grep') return `Recherche code : ${String(block.input?.pattern ?? '').slice(0, 80)}`;
+      if (block.name === 'Glob') return `Fichiers : ${String(block.input?.pattern ?? '').slice(0, 80)}`;
       return `Outil : ${block.name ?? '?'}`;
     }
   }
@@ -78,7 +82,7 @@ async function runSie(
   rs: RunState,
   role: SieRoleName,
   systemPrompt: string,
-  opts: { allowedTools?: string[]; maxBudgetUsd?: number; onMessage?: (m: Record<string, unknown>) => void } = {},
+  opts: { allowedTools?: string[]; maxBudgetUsd?: number; cwd?: string; onMessage?: (m: Record<string, unknown>) => void } = {},
 ): Promise<{ text: string; costUsd: number; subtype: string }> {
   const cfgRole = { name: role, ...SIE_ROLES[role] };
   const res = await runRole(deps.query, {
@@ -88,6 +92,7 @@ async function runSie(
     settingSources: [],
     allowedTools: opts.allowedTools,
     maxBudgetUsd: opts.maxBudgetUsd ?? 1.5,
+    cwd: opts.cwd,
     onMessage: opts.onMessage,
   });
   const cost = res.totalCostUsd ?? 0;
@@ -361,6 +366,19 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   // The targetApp's concrete file map (known after pass 1) + the kind-specific playbook (security, perf,
   // feature, evolution, game...) are fed into each pass so the brief is rigorous for THIS kind of change.
   const kind = isGameOpp(r.kind, r.dedup_key) ? 'game' : (r.kind ?? '');
+  // Give the feasibility agent READ access to the REAL code: git pull the repos host-side first, so it
+  // confirms exact class/method/identifier names against live source instead of trusting the file map.
+  let codeRoot: string | undefined;
+  if (deps.cfg.GITHUB_PAT && deps.cfg.GITHUB_ORG) {
+    activity = 'Mise a jour des depots (git pull)…';
+    update();
+    try {
+      if (syncRepos(SERVITIUM_REPOS, deps.cfg).length) codeRoot = CODESCAN_ROOT;
+    } catch {
+      /* best-effort: fall back to web-only + the injected file map */
+    }
+  }
+  const feasTools = codeRoot ? ['WebSearch', 'WebFetch', 'Read', 'Grep', 'Glob'] : ['WebSearch', 'WebFetch'];
   let appCtx = '';
   let f: Feasibility | undefined;
   let prevBlockers = Number.POSITIVE_INFINITY;
@@ -370,8 +388,9 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
     activity = pass === 1 ? 'Investigation profonde…' : 'Approfondissement automatique…';
     update();
     const perPass = Math.min(deps.cfg.PER_BRIEF_BUDGET_USD, totalBudget - briefSpent);
-    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer, { appContext: appCtx, kind }), {
-      allowedTools: ['WebSearch', 'WebFetch'],
+    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer, { appContext: appCtx, kind, codeAccess: !!codeRoot }), {
+      allowedTools: feasTools,
+      cwd: codeRoot,
       maxBudgetUsd: perPass,
       onMessage: (msg) => {
         if (msg.type === 'assistant') turns += 1;

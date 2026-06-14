@@ -83,19 +83,23 @@ export function feasibilityPrompt(
   sources: string,
   prior?: { findings: string[]; unknowns: string[] },
   steer?: string,
-  opts: { appContext?: string; kind?: string } = {},
+  opts: { appContext?: string; kind?: string; codeAccess?: boolean } = {},
 ): string {
   const priorBlock = prior && (prior.findings.length || prior.unknowns.length)
     ? `A PRIOR investigation already established these findings (treat them as known, build on them, do NOT redo):\n${prior.findings.map((f) => `- ${f}`).join('\n')}\n\nFOCUS this pass on RESOLVING these still-open unknowns - dig hard until each is answered, then move it into concreteFindings and shrink the unknowns list:\n${prior.unknowns.map((u) => `- ${u}`).join('\n')}`
     : '';
   const steerBlock = steer && steer.trim() ? `THE OWNER EXPLICITLY ASKS YOU TO ALSO INVESTIGATE/VERIFY THIS - make it a TOP priority of this pass and report concrete findings on it:\n"${steer.trim()}"` : '';
   const appBlock = opts.appContext ? `THE TARGET APP'S CONCRETE FILE MAP (dig in THESE real files, cite them in approachSteps/impactedApps, do NOT re-derive the layout):\n${opts.appContext}` : '';
+  const codeBlock = opts.codeAccess
+    ? `YOU HAVE THE ACTUAL SERVITIUM REPOSITORIES CHECKED OUT (freshly git-pulled) AT YOUR CURRENT WORKING DIRECTORY: servitium-api/, servitium-center/, servitium-portal/, servitium-ui/, servitium-electron-gui/, servitium-discord/, servitium-autodev/. USE Read/Grep/Glob on them to CONFIRM every exact module/class/method/identifier name, signature and file path you cite — do NOT guess or rely only on the injected file map. Read the real files for the target app (e.g. servitium-api/src/rcon/) BEFORE writing approachSteps, cite real file:line, and RESOLVE every "confirm the exact names / where the seam goes" question by reading the code now (move it from unknowns/fieldUnknowns into concreteFindings).`
+    : '';
   const playbook = kindPlaybook(opts.kind);
   const kindBlock = playbook ? `${kindLabel(opts.kind).toUpperCase()} — use this as the backbone of approachSteps + acceptanceCriteria + impactedApps; verify each point against the real code:\n${playbook}` : '';
   return [
     `You are the FEASIBILITY investigator. Produce a DEEP, EXHAUSTIVE, CONCRETE feasibility dossier for this Servitium opportunity.`,
     `Tailor the dossier to the opportunity KIND: a SECURITY opp names the exact vuln class + the guard/decorator to add + a failing regression test; a BUG-FIX/REFACTOR opens with a failing test then the minimal fix; a PERFORMANCE opp states the metric + the index/query/cache change; a FEATURE reuses existing services + decides the free/Pro entitlement gate; an EVOLUTION checks breaking changes + the patch-package patches; a BUSINESS opp respects the live 9.99 EUR Pro/Stripe model. The injected playbook below is your backbone.`,
     steerBlock,
+    codeBlock,
     appBlock,
     kindBlock,
     priorBlock,
