@@ -50,6 +50,7 @@ export interface ScoreInput {
   evidenceCount?: Partial<Record<FeatureKey, number>>; // # cited sources per axis
   signalCount?: number; // corroborating signals
   daysSinceLastSignal?: number;
+  categoryBias?: number; // learned per-kind bias (validated kinds rise, rejected fall), clamped
 }
 
 export interface ScoreResult {
@@ -57,7 +58,7 @@ export interface ScoreResult {
   base: number; // pre-modifier weighted sum (0..100)
   features: Features; // clamped + evidence-capped
   evidenceCoverage: number; // axes-with-evidence / 8
-  modifiers: { confidence: number; momentum: number; recency: number; fitGuard: number; feasibilityFloor: number };
+  modifiers: { confidence: number; momentum: number; recency: number; fitGuard: number; feasibilityFloor: number; learnedBias: number };
 }
 
 export function clamp01(n: unknown): number {
@@ -87,12 +88,14 @@ export function scoreOpportunity(input: ScoreInput, ws: WeightSet = DEFAULT_WEIG
   const recency = Math.exp(-Math.max(0, input.daysSinceLastSignal ?? 0) / 30);
   const fitGuard = f.strategic_fit <= 0.3 ? 0.5 : 1;
   const feasibilityFloor = f.feasibility <= 0.2 ? 0.6 : 1;
+  const learnedBias = 100 * Math.max(-0.08, Math.min(0.08, input.categoryBias ?? 0));
 
   base = base * confidence;
   base = base + momentum;
   base = base * recency;
   base = base * fitGuard;
   base = base * feasibilityFloor;
+  base = base + learnedBias; // owner preference: validated kinds rise, rejected fall
 
   const score = Math.round(Math.max(0, Math.min(100, base)));
   return {
@@ -100,7 +103,7 @@ export function scoreOpportunity(input: ScoreInput, ws: WeightSet = DEFAULT_WEIG
     base: Math.round(base * 100) / 100,
     features: f,
     evidenceCoverage,
-    modifiers: { confidence, momentum, recency, fitGuard, feasibilityFloor },
+    modifiers: { confidence, momentum, recency, fitGuard, feasibilityFloor, learnedBias },
   };
 }
 

@@ -144,6 +144,8 @@ async function renderOpportunities() {
   const cap = 52, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
   const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
   const statFilter = [['open', 'À traiter'], ['validated', 'Validées'], ['all', 'Tout']].map(([k, l]) => `<button data-stat="${k}" class="${OPP_STATUS === k ? 'active' : ''}">${l}</button>`).join('');
+  const lb = Object.entries(ov.learnedBias || {}).sort((a, b) => b[1] - a[1]);
+  const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix :</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? '↑' : '↓'} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
       <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="en direct"></span><button class="btn ghost" id="scan-code">Analyser le code</button><button class="btn" id="run-now">Lancer la veille</button></div></div>
@@ -151,6 +153,7 @@ async function renderOpportunities() {
       <div class="card kpi"><div class="label">Opportunités ouvertes</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} phares</div></div>
       <div class="card kpi"><div class="label">Dépense intel (mois)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">plafond ${usd(cap)} ~ 50 EUR</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
     </div>
+    ${lbHtml}
     <div class="filters">${statFilter}<span style="width:14px"></span>${srcFilter}</div>
     <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
   $('#run-now').addEventListener('click', async () => { const r = await api('/sie/run-now', { method: 'POST', body: '{}' }); toast(r && r.error ? r.error : 'Veille lancée — elle apparaîtra ici en direct.'); });

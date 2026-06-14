@@ -49,3 +49,13 @@ STRATEGIC LENS for scoring opportunities
 - Dead-center = deepens admin/community tooling for survival/RCON games, OR strengthens the freemium
   upsell, OR leverages the agent/Rust/Discord edges. Off-mission = becoming a generic host.
 `.trim();
+
+// The ACTIVE dossier: the auto-refreshed version (from CLAUDE.md + READMEs) when present, else the
+// hand-seeded constant. The pipeline sets it at run start so every prompt stays current.
+let activeDossier = SERVITIUM_DOSSIER;
+export function getActiveDossier(): string {
+  return activeDossier;
+}
+export function setActiveDossier(d: string | null | undefined): void {
+  activeDossier = d && d.trim().length > 100 ? d : SERVITIUM_DOSSIER;
+}

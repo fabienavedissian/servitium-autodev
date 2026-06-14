@@ -1,6 +1,7 @@
 import type { DB } from '../db/db';
 import { tierForScore, type WeightSet, DEFAULT_WEIGHTS } from './score/rubric';
 import { rankOpportunities, type Rankable } from './score/gate';
+import { getKindBias } from './learning';
 
 // Data layer for the Intelligence Engine (mirrors dashboard/proposals.ts style). Pure better-sqlite3.
 
@@ -135,6 +136,7 @@ export function upsertOpportunity(db: DB, o: OpportunityUpsert, score: number, w
 
 // Recompute dense ranks over all currently-shown opportunities (token-free; safe to call often).
 export function rerankShown(db: DB, ws: WeightSet = DEFAULT_WEIGHTS): void {
+  const bias = getKindBias(db); // learned per-kind preference
   const rows = db
     .prepare(`SELECT id, kind, feature_json, signal_count, last_signal_at, created_at FROM opportunity WHERE status IN ('proposed','greenlit','accepted')`)
     .all() as { id: number; kind: string; feature_json: string; signal_count: number; last_signal_at: string; created_at: string }[];
@@ -151,12 +153,12 @@ export function rerankShown(db: DB, ws: WeightSet = DEFAULT_WEIGHTS): void {
       id: r.id,
       kind: r.kind,
       createdAt: r.created_at,
-      input: { features: fj.features ?? {}, evidenceCount: fj.evidenceCount ?? {}, signalCount: r.signal_count, daysSinceLastSignal: days },
+      input: { features: fj.features ?? {}, evidenceCount: fj.evidenceCount ?? {}, signalCount: r.signal_count, daysSinceLastSignal: days, categoryBias: bias[r.kind] ?? 0 },
     };
   });
   const ranked = rankOpportunities(items, ws);
-  const upd = db.prepare('UPDATE opportunity SET rank=? WHERE id=?');
-  const tx = db.transaction(() => ranked.forEach((r) => upd.run(r.rank, r.id)));
+  const upd = db.prepare('UPDATE opportunity SET rank=?, score=? WHERE id=?');
+  const tx = db.transaction(() => ranked.forEach((r) => upd.run(r.rank, r.result.score, r.id)));
   tx();
 }
 

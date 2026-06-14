@@ -1,10 +1,10 @@
-import { SERVITIUM_DOSSIER } from './dossier';
+import { getActiveDossier } from './dossier';
 import { FEATURE_KEYS } from './score/rubric';
 
 // All SIE agents output STRICT JSON only (parsed with parseJsonLoose). They never pick the next
 // stage and never compute the final score — the FSM/code does. Grounding is the dossier blob.
 
-const GROUND = `--- SERVITIUM CONTEXT ---\n${SERVITIUM_DOSSIER}\n--- END CONTEXT ---`;
+const ground = (): string => `--- SERVITIUM CONTEXT ---\n${getActiveDossier()}\n--- END CONTEXT ---`;
 
 export function harvestPrompt(angle: string, label: string, queries: string[]): string {
   return [
@@ -13,7 +13,7 @@ export function harvestPrompt(angle: string, label: string, queries: string[]): 
     queries.map((q, i) => `  ${i + 1}. ${q}`).join('\n'),
     `Return ONLY real results you actually found via search. Do NOT invent URLs or titles.`,
     `Output ONLY JSON: {"hits":[{"title":string,"url":string,"snippet":string,"publishedHint":string}]} (max 12 hits, dedup obvious repeats).`,
-    GROUND,
+    ground(),
   ].join('\n\n');
 }
 
@@ -24,7 +24,7 @@ export function extractPrompt(angle: string, pages: { url: string; text: string 
     `Do NOT fabricate quantitative claims (counts, percentages). Only state what the text supports.`,
     `Pages:\n${pages.map((p, i) => `[#${i}] ${p.url}\n${p.text.slice(0, 5000)}`).join('\n\n')}`,
     `Output ONLY JSON: {"signals":[{"index":number,"title":string,"summary":string,"sourceType":string,"claimedDate":string,"relevant":boolean}]}.`,
-    GROUND,
+    ground(),
   ].join('\n\n');
 }
 
@@ -42,7 +42,7 @@ export function ideatePrompt(signals: { id: number; angle: string; title: string
     `Signals:\n${signals.map((s) => `[signal:${s.id}] (${s.angle}) ${s.title} - ${s.summary}`).join('\n')}`,
     `Output ONLY JSON: {"opportunities":[{"kind":"feature|game|business|integration|pricing|tech-enabler","title":string,"thesis":string,"whyNow":string,"fit":string,"dedupKey":string,"evidence":[signalId],"sources":[{"label":string,"url":string}]}]} (max 6).`,
     `dedupKey = a slugified canonical noun, e.g. "game:rust", "business:hosting", "discord:premium-tickets".`,
-    GROUND,
+    ground(),
   ].join('\n\n');
 }
 
@@ -61,7 +61,7 @@ export function scorerPrompt(opp: { title: string; thesis: string; whyNow: strin
     `  moat_or_diff: 0 copyable .. 1 leverages agent/Rust/Discord   |   reversibility: 0 irreversible .. 1 cheap to abandon`,
     `  freshness: 0 already-known .. 1 net-new`,
     `Output ONLY JSON: {"features":{${FEATURE_KEYS.map((k) => `"${k}":0.0`).join(',')}},"justifications":{"<feature>":"... [signal:N]"},"evidenceCount":{"<feature>":<int sources cited>}}.`,
-    GROUND,
+    ground(),
   ].join('\n\n');
 }
 
@@ -82,7 +82,7 @@ export function feasibilityPrompt(opp: { title: string; thesis: string; whyNow: 
     `"targetApp":"servitium-api|center|portal|ui|electron-gui|new-app","concreteFindings":["real commands/config/API details, each specific"],`,
     `"unknowns":["what a spike must answer first"],"approachSteps":["step naming real files/dirs"],"dataModel":string,"outOfScope":string,`,
     `"acceptanceCriteria":["objectively checkable"],"testStrategy":string,"verifyCommands":["npm run build", "..."],"reviewChecklist":["..."]}.`,
-    GROUND,
+    ground(),
   ].join('\n\n');
 }
 
@@ -117,7 +117,7 @@ export function codeAuditPrompt(repo: string, area: string, fileList: string): s
     `Note version-specific best practices for the framework versions the repo actually uses. Skip trivial/cosmetic nits.`,
     `Files in scope (a sample):\n${fileList}`,
     `Work in English. Output ONLY JSON: {"opportunities":[{"kind":"security|performance|refactor|test-gap|feature|lib-upgrade","title":string,"thesis":string,"whyNow":string,"fit":string,"dedupKey":string,"evidence":["src/x/y.ts:42"],"severity":"high|medium|low"}]} (max 6, only the genuinely worthwhile).`,
-    `dedupKey = "code:${repo}:<short-slug>". ${GROUND}`,
+    `dedupKey = "code:${repo}:<short-slug>". ${ground()}`,
   ].join('\n\n');
 }
 

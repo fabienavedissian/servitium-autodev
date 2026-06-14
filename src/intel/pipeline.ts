@@ -11,6 +11,8 @@ import { scoreOpportunity, tierForScore, DEFAULT_WEIGHTS } from './score/rubric'
 import * as repos from './repos';
 import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPrompt, translateOppsPrompt, translateFeasibilityPrompt } from './prompts';
 import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility } from './brief/maxPromptTemplate';
+import { setActiveDossier } from './dossier';
+import { kvGet } from './learning';
 
 export interface VeilleDeps {
   db: DB;
@@ -92,6 +94,7 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
   const rs: RunState = { spentUsd: 0 };
   const log = deps.log ?? (() => {});
   const stage = (s: string, d = '') => deps.onStage?.(s, d);
+  setActiveDossier(kvGet(deps.db, 'dossier')); // use the auto-refreshed context if present
 
   // Intel monthly/daily sub-cap kill-switch (the ~50 EUR guarantee).
   const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);

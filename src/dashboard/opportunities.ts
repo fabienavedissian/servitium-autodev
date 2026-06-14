@@ -1,6 +1,7 @@
 import type { DB } from '../db/db';
 import { scoreOpportunity, DEFAULT_WEIGHTS, FEATURE_KEYS } from '../intel/score/rubric';
 import { recordDecision, rerankShown } from '../intel/repos';
+import { recomputeKindBias, getKindBias } from '../intel/learning';
 
 // Dashboard read/write for the Intelligence Engine: ranked opportunities + the explainable score
 // breakdown, the logbook feed, sie run KPIs, and the decide endpoint (banks the decision + reranks).
@@ -106,6 +107,7 @@ export function decideOpportunity(db: DB, id: number, action: DecideAction, comm
   }
   db.prepare(`UPDATE opportunity SET ${sets.join(', ')} WHERE id=@id`).run(params);
   recordDecision(db, id, m.verdict, comment, at);
+  recomputeKindBias(db, at); // learn from this decision, then re-rank so the effect is immediate
   rerankShown(db);
 }
 
@@ -114,7 +116,7 @@ export function sieOverview(db: DB, monthStartIso: string): Record<string, unkno
   const intelMonth = (db.prepare("SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE scope='intel' AND created_at >= ?").get(monthStartIso) as { s: number }).s;
   const counts = db.prepare("SELECT COUNT(*) AS open FROM opportunity WHERE status IN ('proposed','greenlit','accepted')").get() as { open: number };
   const flagship = db.prepare("SELECT COUNT(*) AS n FROM opportunity WHERE flagship=1 AND status IN ('proposed','greenlit','accepted')").get() as { n: number };
-  return { lastRun: last, intelMonthUsd: intelMonth, openOpportunities: counts.open, flagshipOpen: flagship.n };
+  return { lastRun: last, intelMonthUsd: intelMonth, openOpportunities: counts.open, flagshipOpen: flagship.n, learnedBias: getKindBias(db) };
 }
 
 export function logbookFeed(db: DB, limit = 80): Record<string, unknown>[] {

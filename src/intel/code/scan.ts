@@ -11,6 +11,8 @@ import { scoreOpportunity, DEFAULT_WEIGHTS, type Features } from '../score/rubri
 import * as repos from '../repos';
 import { codeAuditPrompt, scorerPrompt, translateOppsPrompt } from '../prompts';
 import { appendLogbook } from '../pipeline';
+import { setActiveDossier } from '../dossier';
+import { kvGet } from '../learning';
 
 export interface CodeScanDeps {
   db: DB;
@@ -128,6 +130,7 @@ export async function runCodeScan(deps: CodeScanDeps, repoArg?: string): Promise
   const repo = repoArg ?? repoForDay(now);
   const rs = { spentUsd: 0 };
   const stage = (s: string, d = '') => deps.onStage?.(s, d);
+  setActiveDossier(kvGet(deps.db, 'dossier'));
 
   const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
   if (cap.paused) return { repo, opportunities: 0, costUsd: 0, note: cap.reason };

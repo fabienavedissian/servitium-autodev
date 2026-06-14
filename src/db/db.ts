@@ -33,6 +33,8 @@ function migrate(db: DB): void {
   // Live brief investigation state, shown in real time under "Validées".
   ensureColumn(db, 'opportunity', 'brief_state', 'TEXT'); // running | done | failed | null
   ensureColumn(db, 'opportunity', 'detail', 'TEXT'); // live sub-status (what the investigation is doing)
+  // Key-value store for the auto-refreshed dossier + the learned per-kind ranking bias.
+  db.exec('CREATE TABLE IF NOT EXISTS sie_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)');
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {
