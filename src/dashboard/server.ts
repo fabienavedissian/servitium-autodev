@@ -229,6 +229,17 @@ const server = http.createServer(async (req, res) => {
   return serveStatic(res, p);
 });
 
+// Recover dead investigations: a brief stuck 'running' with no DB update for 15 min (its process
+// crashed or was killed mid-run) is marked failed so the card stops showing a frozen spinner and the
+// owner can relaunch it.
+setInterval(() => {
+  try {
+    db.prepare("UPDATE opportunity SET brief_state='failed', detail='Investigation interrompue - relance-la.' WHERE brief_state='running' AND (julianday('now') - julianday(updated_at)) * 86400 > 900").run();
+  } catch {
+    /* best-effort */
+  }
+}, 60_000);
+
 // WebSocket: push to clients the instant the DB changes (no client polling). Auth via the session cookie.
 const wss = new WebSocketServer({ noServer: true });
 const clients = new Set<WebSocket>();

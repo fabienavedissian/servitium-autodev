@@ -33,5 +33,12 @@ async function main(): Promise<void> {
 
 main().catch((e: unknown) => {
   console.error('brief failed:', e);
+  try {
+    const id = Number(process.argv[2]);
+    const db = openDb(loadConfig().DB_PATH);
+    db.prepare("UPDATE opportunity SET brief_state='failed', detail=? WHERE id=? AND brief_state='running'").run('Investigation échouée - relance-la.', id);
+  } catch {
+    /* best-effort */
+  }
   process.exit(1);
 });
