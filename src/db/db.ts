@@ -37,6 +37,18 @@ function migrate(db: DB): void {
   ensureColumn(db, 'opportunity', 'brief_started_at', 'TEXT'); // for the live ETA
   ensureColumn(db, 'opportunity', 'feasibility_json', 'TEXT'); // English feasibility -> cumulative "Approfondir"
   ensureColumn(db, 'opportunity', 'brief_steer', 'TEXT'); // owner's extra instruction to steer the next investigation
+  // Post-integration follow-up: after the owner ships the feature, the engine audits the real code
+  // against the brief's acceptance criteria, scores completeness, and emits a finishing prompt — looped
+  // (owner ships gaps -> re-verify) until the engine judges it done, then it can be closed.
+  ensureColumn(db, 'opportunity', 'integration_state', 'TEXT'); // verifying | gaps | complete | failed | null
+  ensureColumn(db, 'opportunity', 'integration_score', 'INTEGER'); // 0..100 completeness vs acceptance criteria
+  ensureColumn(db, 'opportunity', 'integration_md', 'TEXT'); // FR audit report for the owner to read
+  ensureColumn(db, 'opportunity', 'integration_prompt', 'TEXT'); // EN finishing Max prompt for the remaining gaps
+  ensureColumn(db, 'opportunity', 'integration_json', 'TEXT'); // EN audit -> cumulative across re-verify passes
+  ensureColumn(db, 'opportunity', 'integration_progress', 'INTEGER');
+  ensureColumn(db, 'opportunity', 'integration_detail', 'TEXT');
+  ensureColumn(db, 'opportunity', 'integration_started_at', 'TEXT');
+  ensureColumn(db, 'opportunity', 'integration_branch', 'TEXT'); // optional branch to audit (default: repo default)
   // Key-value store for the auto-refreshed dossier + the learned per-kind ranking bias.
   db.exec('CREATE TABLE IF NOT EXISTS sie_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)');
   // Live veille progress, shown in the dashboard while a run is in flight.

@@ -413,6 +413,21 @@ function readinessHTML(o) {
   const ic = r.level === 'ready' ? icon('check', 18) : r.level === 'discouraged' ? icon('x', 18) : icon('alert', 18);
   return `<div class="ready ready-${r.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(r.label)}${o.promptQuality != null ? `<span class="ready-pct">${o.promptQuality}%</span>` : ''}</div><div class="ready-msg">${esc(r.msg)}</div></div></div>`;
 }
+// Post-integration follow-up: shown on a greenlit opp that already has a brief.
+function integrationHTML(o) {
+  const greenlit = o.status === 'greenlit' || o.status === 'accepted';
+  if (!greenlit || !o.has_brief) return '';
+  if (o.integration_state === 'verifying') {
+    const pct = Math.max(2, Math.min(100, o.integration_progress || 0));
+    return `<div class="int-head">${icon('code', 15)} Vérification de l'intégration</div><div class="brief-running"><div class="brief-prog"><div class="brief-prog-head"><span class="trace">${esc(o.integration_detail || 'Audit du code en cours…')}</span><span class="brief-pct">${pct}%${briefEta(o.integration_started_at, pct)}</span></div><div class="bar live"><span style="width:${pct}%"></span></div></div></div>`;
+  }
+  if (o.integration) {
+    const v = o.integration;
+    const ic = v.level === 'ready' ? icon('check', 18) : v.level === 'discouraged' ? icon('x', 18) : icon('alert', 18);
+    return `<div class="ready ready-${v.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(v.label)}</div><div class="ready-msg">${esc(v.msg)}</div></div></div><div class="int-actions"><button class="btn ghost" data-view-integration>Voir le rapport d'audit</button>${v.level === 'blocked' ? `<button class="btn ok" data-copy-finish>Copier le prompt de finition</button>` : ''}<button class="btn ghost" data-verify title="ré-audite le code après tes correctifs">Re-vérifier</button></div><div class="int-zone"></div>`;
+  }
+  return `<div class="int-head">${icon('code', 15)} Tu l'as implémenté ?</div><div class="muted small">Le moteur audite le code réel (sur GitHub) face aux critères d'acceptation, te dit ce qui manque et te donne un prompt de finition — jusqu'à 100%.</div><div class="int-start"><input type="text" data-int-branch placeholder="branche GitHub (optionnel, défaut : principale)"><button class="btn ok" data-verify>Marquer comme intégré — vérifier le code</button></div>`;
+}
 function briefActionsHTML(o) {
   if (o.brief_state === 'running') {
     const pct = Math.max(2, Math.min(100, o.brief_progress || 0));
@@ -454,6 +469,7 @@ function oppCard(o) {
           : `<button class="btn ok" data-act="greenlight">Valider — générer le brief</button><button class="btn no" data-act="reject">Pas intéressé</button><span class="spacer-x"></span><span class="muted small">Bien ciblé&nbsp;?</span><button class="btn ghost" data-act="thumbs_up" title="la veille a visé juste">Utile</button><button class="btn ghost" data-act="thumbs_down" title="hors sujet / sans intérêt">Hors sujet</button>`}
       </div>
       <div class="comment-box small"><textarea data-comment placeholder="Raison (ex : « on a déjà ça, la map gère déjà les 2 maps »). Écris-la puis « Pas intéressé » : le moteur ne te le reproposera plus."></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
+      <div class="integration-block" data-isig="${o.integration_state || ''}|${o.has_integration ? 1 : 0}|${o.status}">${integrationHTML(o)}</div>
     </div></div></article>`;
 }
 async function triggerBrief(id, btn, steer) {
@@ -477,8 +493,30 @@ function wireBriefActions(card) {
     zone.innerHTML = `<div class="brief-doc">${d.brief_md ? renderMarkdown(d.brief_md) : '(pas de brief)'}</div>`; zone.dataset.open = '1';
   });
 }
+function wireIntegration(card) {
+  const id = card.dataset.id;
+  card.querySelector('[data-verify]')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const branch = card.querySelector('[data-int-branch]')?.value.trim() || '';
+    const r = await api(`/opportunities/${id}/verify-integration`, { method: 'POST', body: JSON.stringify({ branch }) });
+    if (r && r.error) toast(r.error, 'error');
+    else toast('Vérification lancée — audit du code en direct.', 'success');
+  });
+  card.querySelector('[data-copy-finish]')?.addEventListener('click', async () => {
+    const d = await api(`/opportunities/${id}`);
+    try { await navigator.clipboard.writeText(d.integration_prompt || ''); toast('Prompt de finition copié. Colle-le dans Max.'); } catch { toast('Copie impossible — ouvre le rapport.'); }
+  });
+  card.querySelector('[data-view-integration]')?.addEventListener('click', async () => {
+    const z = card.querySelector('.int-zone');
+    if (!z) return;
+    if (z.dataset.open) { z.innerHTML = ''; z.dataset.open = ''; return; }
+    const d = await api(`/opportunities/${id}`);
+    z.innerHTML = `<div class="brief-doc">${d.integration_md ? renderMarkdown(d.integration_md) : '(pas de rapport)'}</div>`; z.dataset.open = '1';
+  });
+}
 function wireOpp(card) {
   const id = card.dataset.id;
+  wireIntegration(card);
   const head = card.querySelector('.opp-head');
   const toggle = () => { const open = card.classList.toggle('open'); card.setAttribute('aria-expanded', open ? 'true' : 'false'); };
   head.addEventListener('click', toggle);
@@ -529,6 +567,18 @@ function patchOppCard(card, o) {
       const span = ba.querySelector('.bar > span'); if (span) span.style.width = pct + '%';
       const pctEl = ba.querySelector('.brief-pct'); if (pctEl) pctEl.textContent = `${pct}%${briefEta(o.brief_started_at, pct)}`;
       const trace = ba.querySelector('.trace'); if (trace) trace.textContent = o.detail || 'Investigation profonde en cours…';
+    }
+  }
+  // Integration follow-up block (same glide-not-snap trick for the verify progress bar).
+  const ib = card.querySelector('.integration-block');
+  if (ib) {
+    const isig = `${o.integration_state || ''}|${o.has_integration ? 1 : 0}|${o.status}`;
+    if (ib.dataset.isig !== isig) { ib.innerHTML = integrationHTML(o); ib.dataset.isig = isig; wireIntegration(card); }
+    else if (o.integration_state === 'verifying') {
+      const pct = Math.max(2, Math.min(100, o.integration_progress || 0));
+      const span = ib.querySelector('.bar > span'); if (span) span.style.width = pct + '%';
+      const pctEl = ib.querySelector('.brief-pct'); if (pctEl) pctEl.textContent = `${pct}%${briefEta(o.integration_started_at, pct)}`;
+      const trace = ib.querySelector('.trace'); if (trace) trace.textContent = o.integration_detail || 'Audit du code en cours…';
     }
   }
 }

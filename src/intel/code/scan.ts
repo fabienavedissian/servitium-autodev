@@ -59,7 +59,7 @@ async function runSie(deps: CodeScanDeps, rs: { spentUsd: number }, role: 'score
 }
 
 // Clone (shallow) or refresh the repo into the scan dir, host-side.
-function syncRepo(repo: string, cfg: Config): string | null {
+export function syncRepo(repo: string, cfg: Config): string | null {
   const dir = path.join(SCAN_ROOT, repo);
   const url = `https://x-access-token:${cfg.GITHUB_PAT}@github.com/${cfg.GITHUB_ORG}/${repo}.git`;
   try {

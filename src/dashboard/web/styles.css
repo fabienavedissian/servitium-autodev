@@ -497,6 +497,16 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .ready-discouraged { background: var(--danger-soft); border-color: var(--danger-line); }
 .ready-discouraged .ready-ico { background: rgba(255,107,129,.18); color: var(--danger); }
 .ready-discouraged .ready-label { color: var(--danger); }
+
+/* Post-integration follow-up block */
+.integration-block:not(:empty) { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.int-head { font-weight: 600; font-size: var(--fs-sm); display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.int-start { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.int-start input { flex: 1; min-width: 200px; padding: 9px 12px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font-size: var(--fs-sm); }
+.int-start input:focus { border-color: var(--accent); }
+.int-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.int-zone:not(:empty) { margin-top: 10px; }
+.job-card.t-verify { border-left-color: var(--info); }
 .ic { vertical-align: -.18em; }
 a .ic { vertical-align: -.12em; }
 .nav-slot { display: flex; align-items: center; }

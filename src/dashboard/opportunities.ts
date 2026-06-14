@@ -66,7 +66,7 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
   if (!['open', 'validated', 'all'].includes(status)) params.status = status;
   if (source === 'web' || source === 'code') params.source = source;
   const rows = db
-    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, feasibility_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, brief_state, detail, brief_progress, brief_started_at, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
+    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, feasibility_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, brief_state, detail, brief_progress, brief_started_at, (brief_md IS NOT NULL) AS has_brief, integration_state, integration_score, integration_progress, integration_detail, integration_started_at, (integration_md IS NOT NULL) AS has_integration FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
     .all(params) as Record<string, unknown>[];
   return rows.map((r) => {
     const { feasibility_json, ...rest } = r;
@@ -81,6 +81,7 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
       promptQuality: promptQuality((r.recommendation as string) ?? null, blockers, bd.evidenceCoverage),
       fieldCount,
       readiness: readinessOf((r.recommendation as string) ?? null, blockers, fieldCount, !!r.has_brief),
+      integration: integrationVerdictOf((r.integration_state as string) ?? null, (r.integration_score as number) ?? null),
     };
   });
 }
@@ -171,7 +172,18 @@ export function activeJobs(db: DB): Record<string, unknown>[] {
   for (const b of briefs) jobs.push({ id: b.id, type: 'brief', label: `Brief : ${b.title || ''}`, stage: b.detail || 'investigation…', progress: b.brief_progress || 0, startedAt: b.brief_started_at });
   const reps = db.prepare("SELECT id, detail, progress, started_at FROM report WHERE state='running'").all() as { id: number; detail: string | null; progress: number | null; started_at: string }[];
   for (const r of reps) jobs.push({ id: r.id, type: 'report', label: 'Compte-rendu', stage: r.detail || 'recherche…', progress: r.progress || 0, startedAt: r.started_at });
+  const verifying = db.prepare("SELECT id, COALESCE(title_fr,title) AS title, integration_detail, integration_progress, integration_started_at FROM opportunity WHERE integration_state='verifying'").all() as { id: number; title: string; integration_detail: string | null; integration_progress: number | null; integration_started_at: string | null }[];
+  for (const x of verifying) jobs.push({ id: x.id, type: 'verify', label: `Vérif : ${x.title || ''}`, stage: x.integration_detail || 'audit du code…', progress: x.integration_progress || 0, startedAt: x.integration_started_at });
   return jobs;
+}
+
+// Owner-facing verdict for the post-integration audit, mirroring readinessOf.
+function integrationVerdictOf(state: string | null, score: number | null): Record<string, unknown> | null {
+  if (!state) return null;
+  if (state === 'complete') return { ready: true, level: 'ready', label: 'Intégration validée', msg: `Tout est en place (${score ?? 100}/100). Tu peux clôturer en confiance.` };
+  if (state === 'gaps') return { ready: false, level: 'blocked', label: `Intégré à ${score ?? 0}%`, msg: 'Il reste des points à finir. Copie le prompt de finition, implémente-les sur Max, pousse, puis re-vérifie.' };
+  if (state === 'failed') return { ready: false, level: 'discouraged', label: 'Vérification échouée', msg: 'Le code n’a pas pu être audité (pas poussé sur GitHub ?). Relance la vérification.' };
+  return null; // 'verifying' -> shown via the live progress bar instead
 }
 
 // Everything the veille actually SAW: the raw signals it harvested (research reports), so the owner

@@ -207,6 +207,19 @@ const server = http.createServer(async (req, res) => {
       child.unref();
       return send(res, 200, { ok: true, started: true });
     }
+    const oppVerify = /^\/api\/opportunities\/(\d+)\/verify-integration$/.exec(p);
+    if (oppVerify && req.method === 'POST') {
+      const id = Number(oppVerify[1]);
+      const exists = db.prepare('SELECT 1 FROM opportunity WHERE id=?').get(id);
+      if (!exists) return send(res, 404, { error: 'not found' });
+      if (intelCapped) return send(res, 429, { error: capMsg });
+      const vbody = await readBody(req);
+      const branch = String(vbody.branch ?? '').trim().slice(0, 120) || null;
+      db.prepare("UPDATE opportunity SET integration_state='verifying', integration_progress=0, integration_started_at=NULL, integration_branch=?, integration_detail='Lancement de la verification...', updated_at=? WHERE id=?").run(branch, now.toISOString(), id);
+      const child = spawn(process.execPath, ['--max-old-space-size=2048', 'dist/scripts/verify-integration.js', String(id)], { cwd: process.cwd(), detached: true, stdio: 'ignore', env: process.env });
+      child.unref();
+      return send(res, 200, { ok: true, started: true });
+    }
     if (p === '/api/sie/run-now' && req.method === 'POST') {
       const today = new Date().toISOString().slice(0, 10);
       const running = db.prepare("SELECT 1 FROM sie_run WHERE run_date=? AND status='running'").get(today);

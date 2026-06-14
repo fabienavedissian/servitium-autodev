@@ -118,6 +118,34 @@ export function feasibilityPrompt(
   ].join('\n\n');
 }
 
+// Post-integration audit: read the SHIPPED code and judge completeness vs the brief's acceptance criteria.
+export function verifyIntegrationPrompt(
+  opp: { title: string; targetApp: string },
+  brief: { acceptanceCriteria: string[]; approachSteps: string[]; concreteFindings: string[] },
+  prior?: { done: string[]; missing: string[] },
+): string {
+  const priorBlock = prior && (prior.done.length || prior.missing.length)
+    ? `A PRIOR audit already verified these as DONE (re-confirm quickly, then focus on the rest):\n${prior.done.map((x) => `- ${x}`).join('\n')}\n\nThese were MISSING/incorrect last time - check whether they are now fixed:\n${prior.missing.map((x) => `- ${x}`).join('\n')}`
+    : '';
+  return [
+    `You are a STRICT senior code reviewer. The owner says they have IMPLEMENTED this Servitium feature. Read the ACTUAL`,
+    `code in this repo (you are in the repo root with read-only tools) and judge HONESTLY how complete and correct the`,
+    `implementation is against the acceptance criteria. Do NOT trust claims - verify in the real files (grep/read).`,
+    priorBlock,
+    `Feature: ${opp.title}\nTarget app: ${opp.targetApp}`,
+    `Acceptance criteria (each must be objectively met in the code):\n${(brief.acceptanceCriteria ?? []).map((x) => `- ${x}`).join('\n') || '- (none specified - infer from the approach)'}`,
+    `Intended approach (reference):\n${(brief.approachSteps ?? []).map((x) => `- ${x}`).join('\n')}`,
+    `For EACH acceptance criterion, find the code that satisfies it (cite file:line) or mark it missing. Also check Servitium`,
+    `conventions: i18n in all 6 languages for new UI strings, no emoji, a green mongodb-memory-server integration test for`,
+    `API changes, no internal infra/filenames leaked in UI. "done" ONLY if you actually saw the code; else "missing" with the file to fix.`,
+    `Output ONLY JSON: {"integrationScore":0-100,"isComplete":boolean (true ONLY if everything is met and you would ship it),`,
+    `"verdict":"2-3 sentences owner-facing","done":["criterion met - file:line"],"missing":["what is missing/wrong, specifically, with the file"],`,
+    `"followupPrompt":"a ready-to-paste Max prompt to finish/fix ONLY the remaining gaps; empty string if complete"}.`,
+    `Work in English; a separate step translates for display.`,
+    ground(),
+  ].join('\n\n');
+}
+
 // Display-only translation (the veille reasoned in English; this just renders FR for the owner).
 export function translateOppsPrompt(items: { id: number; title: string; thesis: string; whyNow: string; fit: string }[]): string {
   return [
