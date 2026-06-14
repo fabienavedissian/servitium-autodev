@@ -70,7 +70,7 @@ function renderLogin() {
 
 /* ---------- Shell ---------- */
 function renderShell() {
-  const primary = [['opportunities', 'Opportunités'], ['validated', 'Mes briefs'], ['logbook', 'Carnet de bord']];
+  const primary = [['opportunities', 'Opportunités'], ['validated', 'Mes briefs'], ['research', 'Veille'], ['logbook', 'Carnet de bord']];
   const secondary = [['overview', 'Aperçu'], ['proposals', 'Propositions'], ['runs', 'Runs']];
   const link = ([k, l]) => `<a data-v="${k}">${l}</a>`;
   $('#app').innerHTML = '';
@@ -96,6 +96,7 @@ function route() {
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities') renderOpportunities();
   else if (VIEW === 'validated') renderValidated();
+  else if (VIEW === 'research') renderResearch();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'proposals') renderProposals();
   else renderRuns();
@@ -161,6 +162,12 @@ function wireProp(card) {
 
 /* ---------- Opportunités (Intelligence Engine) ---------- */
 const scoreClass = (s) => (s >= 85 ? 'flag' : s >= 65 ? 'good' : 'mid');
+const GAME_APPID = { rust: 252490, dayz: 221100, ark: 346110, 'v rising': 1604030, vrising: 1604030, 'conan exiles': 440900, conan: 440900, soulmask: 2646460, palworld: 1623730, enshrouded: 1203620, valheim: 892970, "garry's mod": 4000, 's&box': 4000, "7 days to die": 251570, 'project zomboid': 108600 };
+function gameImage(title) {
+  const t = (title || '').toLowerCase();
+  for (const [name, id] of Object.entries(GAME_APPID)) if (t.includes(name)) return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/header.jpg`;
+  return null;
+}
 const KIND_FR = { feature: 'feature', game: 'jeu', business: 'métier', integration: 'intégration', pricing: 'tarif', 'tech-enabler': 'technique', security: 'sécurité', performance: 'perf', refactor: 'refactor', 'lib-upgrade': 'libs', 'test-gap': 'tests' };
 async function renderOpportunities() {
   const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
@@ -231,8 +238,10 @@ function oppCard(o) {
   const b = o.breakdown || { bars: [] };
   const sources = (o.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label || 'source')} ↗</a>`).join(' · ');
   const bars = b.bars.map((bar) => `<div class="bd-row" title="${esc(bar.why)}"><span class="bd-k">${esc(bar.key)}</span><div class="bd-bar"><span style="width:${Math.round((bar.value || 0) * 100)}%"></span></div><span class="bd-w">x${bar.weight}</span><span class="bd-ev ${bar.evidence ? '' : 'none'}">${bar.evidence ? 'sourcé' : 'sans preuve'}</span></div>`).join('');
+  const img = gameImage(o.title);
   return `<div class="opp" data-id="${o.id}">
     <div class="opp-head">
+      ${img ? `<img class="opp-img" src="${img}" alt="" loading="lazy" onerror="this.remove()">` : ''}
       <div class="opp-score ${scoreClass(o.score)}">${o.score ?? '?'}</div>
       <div class="opp-main">
         <div class="opp-title">${oppTitleHTML(o)}</div>
@@ -327,6 +336,29 @@ async function updateOpportunitiesLive() {
   const k = $('#view').querySelectorAll('.kpi .value');
   if (k[0]) k[0].textContent = ov.openOpportunities;
   if (k[1]) k[1].textContent = usd(ov.intelMonthUsd);
+}
+
+/* ---------- Veille (transparence : tout ce que le moteur a vu) ---------- */
+const ANGLE_FR = { tech: 'Tech & moteurs', product: 'Discord & produit', competitor: 'Concurrents', game: 'Jeux candidats', market: 'Marché & pricing', business: 'Nouveaux métiers', platform: 'Plateforme', owner: 'Tes priorités', code: 'Code' };
+function whyNot(o) {
+  if (o.status === 'rejected') return o.comment ? `tu l'as écarté : « ${esc(o.comment)} »` : "tu l'as écarté";
+  const b = o.breakdown;
+  if (!b || !b.bars || !b.bars.length) return `score ${o.score}/100 sous le seuil de 65`;
+  const weak = [...b.bars].sort((a, c) => a.value * a.weight - c.value * c.weight).slice(0, 2).map((x) => x.key);
+  return `score ${o.score}/100 sous le seuil (65) — points faibles : ${weak.join(', ')}`;
+}
+async function renderResearch() {
+  const d = await api('/sie/research');
+  const byAngle = {};
+  (d.signals || []).forEach((s) => { (byAngle[s.angle] = byAngle[s.angle] || []).push(s); });
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct"></span></div>
+    <div class="section-title">Activité</div>
+    <div class="runs-feed">${(d.runs || []).length ? d.runs.map((r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(r.run_date)}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
+    <div class="section-title">Recherches & lectures · ${(d.signals || []).length} signaux</div>
+    <div class="signals">${Object.keys(byAngle).length ? Object.entries(byAngle).map(([a, sigs]) => `<div class="sig-group"><h4>${esc(ANGLE_FR[a] || a)} <span class="muted">· ${sigs.length}</span></h4>${sigs.map((s) => `<div class="sig"><div class="sig-title">${esc(s.title)}${s.source_url ? ` <a href="${esc(s.source_url)}" target="_blank" rel="noopener">${esc(s.source_domain || 'source')} ↗</a>` : ''}</div>${s.summary ? `<div class="sig-sum">${esc(s.summary)}</div>` : ''}</div>`).join('')}</div>`).join('') : '<div class="empty">Aucun signal pour l\'instant — lance une veille.</div>'}</div>
+    <div class="section-title">Considéré mais non retenu · ${(d.notRetained || []).length}</div>
+    <div class="not-retained">${(d.notRetained || []).length ? d.notRetained.map((o) => `<div class="nr"><div class="nr-score ${scoreClass(o.score)}">${o.score ?? '?'}</div><div class="nr-main"><div class="nr-title">${esc(o.title)} <span class="chip">${esc(o.status)}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span></div>${o.thesis ? `<div class="muted small">${esc(o.thesis)}</div>` : ''}<div class="nr-why">Pourquoi non retenu : ${whyNot(o)}</div></div></div>`).join('') : '<div class="muted">Rien d\'écarté pour l\'instant.</div>'}</div>`;
 }
 
 /* ---------- Carnet de bord ---------- */

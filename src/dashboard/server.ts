@@ -9,7 +9,7 @@ import { createLogger } from '../log';
 import { spawn } from 'child_process';
 import { tasksByState, costSince, recentRuns, runDetail, addComment } from './queries';
 import { listProposals, decideProposal, proposalCounts, type ProposalStatus } from './proposals';
-import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, type DecideAction } from './opportunities';
+import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, signalsFeed, notRetained, type DecideAction } from './opportunities';
 
 const cfg = loadConfig();
 const log = createLogger(cfg);
@@ -146,6 +146,7 @@ const server = http.createServer(async (req, res) => {
     // ── Intelligence Engine (SIE) ──────────────────────────────────────────
     if (p === '/api/sie/overview') return send(res, 200, sieOverview(db, startMonth));
     if (p === '/api/sie/runs') return send(res, 200, recentSenseRuns(db));
+    if (p === '/api/sie/research') return send(res, 200, { runs: recentSenseRuns(db, 30), signals: signalsFeed(db), notRetained: notRetained(db) });
     if (p === '/api/opportunities') return send(res, 200, listOpportunities(db, url.searchParams.get('status') ?? 'open', url.searchParams.get('source') ?? 'all'));
     const oppMatch = /^\/api\/opportunities\/(\d+)$/.exec(p);
     if (oppMatch && req.method === 'GET') {

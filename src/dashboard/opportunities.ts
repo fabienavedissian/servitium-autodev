@@ -128,7 +128,24 @@ export function addLogbookNote(db: DB, kind: string, summary: string, at: string
 }
 
 export function recentSenseRuns(db: DB, limit = 20): Record<string, unknown>[] {
-  return db.prepare('SELECT id, run_date, status, signals_new, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run ORDER BY id DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+  return db.prepare('SELECT id, run_date, status, signals_new, queries_run, hits_fetched, angles_run, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run ORDER BY id DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+}
+
+// Everything the veille actually SAW: the raw signals it harvested (research reports), so the owner
+// gets information even when nothing became an opportunity.
+export function signalsFeed(db: DB, limit = 80): Record<string, unknown>[] {
+  return db
+    .prepare('SELECT id, angle, title, summary, source_url, source_domain, source_type, claimed_date, seen_before, first_seen_at FROM signal ORDER BY id DESC LIMIT ?')
+    .all(limit) as Record<string, unknown>[];
+}
+
+// Opportunities the engine CONSIDERED but did NOT retain (scored below threshold, or rejected), with
+// their score breakdown so the owner sees WHY ("ARK considered, 47/100, parked: low feasibility").
+export function notRetained(db: DB, limit = 50): Record<string, unknown>[] {
+  const rows = db
+    .prepare(`SELECT id, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, status, feature_json, signal_count, last_signal_at, comment FROM opportunity WHERE status IN ('parked','archived','rejected') ORDER BY score DESC LIMIT ?`)
+    .all(limit) as Record<string, unknown>[];
+  return rows.map((r) => ({ ...r, breakdown: breakdown(String(r.feature_json ?? '{}'), Number(r.signal_count ?? 1), r.last_signal_at as string | undefined) }));
 }
 
 function safeArr(s: unknown): unknown[] {

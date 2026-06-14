@@ -119,6 +119,12 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
   try {
     // PLAN (code) -------------------------------------------------------------
     const angles = anglesForDay(now.getUTCDay());
+    // The owner's wants/notes become TOP-priority searches, so the veille actually investigates them
+    // (DayZ, Oxide, ...) instead of only feeding them to ideation.
+    const wantQueries = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('want','note') ORDER BY id DESC LIMIT 5").all() as { summary: string }[]).map((r) => r.summary);
+    if (wantQueries.length) {
+      angles.unshift({ key: 'owner', label: 'Priorités du propriétaire', weight: 12, cadence: 'daily', queryTemplates: wantQueries, freshnessDays: 30 });
+    }
     stage('PLAN', `${angles.length} angles today`);
     const known = repos.knownSignalKeys(deps.db, daysAgoIso(now, 30));
 
