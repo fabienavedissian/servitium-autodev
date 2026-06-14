@@ -123,6 +123,18 @@ export function logbookFeed(db: DB, limit = 80): Record<string, unknown>[] {
   return db.prepare('SELECT id, kind, area, summary, source_ref, source, dated_on, created_at FROM logbook ORDER BY id DESC LIMIT ?').all(limit) as Record<string, unknown>[];
 }
 
+export function listReports(db: DB, limit = 50): Record<string, unknown>[] {
+  return db
+    .prepare('SELECT id, question, state, progress, detail, cost_usd, started_at, created_at, (body_md IS NOT NULL) AS has_body FROM report ORDER BY id DESC LIMIT ?')
+    .all(limit) as Record<string, unknown>[];
+}
+
+export function reportDetail(db: DB, id: number): Record<string, unknown> | null {
+  const r = db.prepare('SELECT * FROM report WHERE id=?').get(id) as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return { ...r, sources: safeArr(r.sources_json) };
+}
+
 export function addLogbookNote(db: DB, kind: string, summary: string, at: string): void {
   db.prepare("INSERT INTO logbook (kind, summary, source, dated_on, created_at) VALUES (?,?,'owner',?,?)").run(kind, summary, at.slice(0, 10), at);
 }

@@ -295,3 +295,8 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .veille-banner .vb-main { flex: 1; }
 .veille-banner .vb-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
 .veille-banner .vb-pct { margin-left: auto; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.report { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 14px 16px; margin-bottom: 10px; }
+.report-head { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+.report-q { font-weight: 600; font-size: 14px; }
+.report-body { margin-top: 10px; }

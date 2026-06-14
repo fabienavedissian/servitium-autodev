@@ -143,6 +143,20 @@ export function codeAuditPrompt(repo: string, area: string, fileList: string): s
   ].join('\n\n');
 }
 
+// Informational research report (compte-rendu) on an owner question - NOT an actionable opportunity.
+export function reportPrompt(question: string): string {
+  return [
+    `You are a RESEARCH analyst for Servitium. The owner asks: "${question}".`,
+    `Research it THOROUGHLY via web search (run many searches, read real pages, cross-check facts). Then write a`,
+    `clear, factual report in FRENCH (markdown). Cover whatever is genuinely relevant, typically: what it is, which`,
+    `games/contexts it is used on, how it works at a high level, its relationship to Servitium (direct competitor?`,
+    `complementary? something we could reproduce or beat?), strengths/weaknesses, performance implications, and`,
+    `concrete takeaways for Servitium. Be specific, cite real sources, never invent.`,
+    `Output ONLY JSON: {"report_md": string (French markdown with ## sections), "sources": [{"label":string,"url":string}]}.`,
+    ground(),
+  ].join('\n\n');
+}
+
 export function promptsmithPrompt(filledTemplate: string): string {
   return [
     `You are the PROMPTSMITH. Below is a near-final ready-to-paste prompt for a Claude Code Max session.`,

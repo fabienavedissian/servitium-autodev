@@ -9,7 +9,7 @@ export interface SieRoleConfig {
   maxTurns: number;
 }
 
-export type SieRoleName = 'harvest' | 'extract' | 'ideator' | 'scorer' | 'feasibility' | 'promptsmith' | 'critic' | 'translate';
+export type SieRoleName = 'harvest' | 'extract' | 'ideator' | 'scorer' | 'feasibility' | 'promptsmith' | 'critic' | 'translate' | 'researcher';
 
 export const SIE_ROLES: Record<SieRoleName, SieRoleConfig> = {
   harvest: { model: MODELS.haiku, effort: 'low', maxTurns: 6 }, // WebSearch one batch/angle
@@ -20,4 +20,5 @@ export const SIE_ROLES: Record<SieRoleName, SieRoleConfig> = {
   promptsmith: { model: MODELS.sonnet, effort: 'high', maxTurns: 8 }, // fill the Max prompt template
   critic: { model: MODELS.sonnet, effort: 'medium', maxTurns: 6 }, // one validation bounce on the prompt
   translate: { model: MODELS.haiku, effort: 'low', maxTurns: 2 }, // EN -> FR for display only (the veille stays English)
+  researcher: { model: MODELS.sonnet, effort: 'high', maxTurns: 20 }, // deep informational report on an owner question
 };

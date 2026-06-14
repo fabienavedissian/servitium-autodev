@@ -70,7 +70,7 @@ function renderLogin() {
 
 /* ---------- Shell ---------- */
 function renderShell() {
-  const primary = [['opportunities', 'Opportunités'], ['validated', 'Mes briefs'], ['research', 'Veille'], ['logbook', 'Carnet de bord']];
+  const primary = [['opportunities', 'Opportunités'], ['validated', 'Mes briefs'], ['research', 'Veille'], ['reports', 'Comptes-rendus'], ['logbook', 'Carnet de bord']];
   const secondary = [['overview', 'Aperçu'], ['proposals', 'Propositions'], ['runs', 'Runs']];
   const link = ([k, l]) => `<a data-v="${k}">${l}</a>`;
   $('#app').innerHTML = '';
@@ -97,6 +97,7 @@ function route() {
   else if (VIEW === 'opportunities') renderOpportunities();
   else if (VIEW === 'validated') renderValidated();
   else if (VIEW === 'research') renderResearch();
+  else if (VIEW === 'reports') renderReports();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'proposals') renderProposals();
   else renderRuns();
@@ -370,6 +371,50 @@ async function renderResearch() {
     <div class="not-retained">${(d.notRetained || []).length ? d.notRetained.map((o) => `<div class="nr"><div class="nr-score ${scoreClass(o.score)}">${o.score ?? '?'}</div><div class="nr-main"><div class="nr-title">${esc(o.title)} <span class="chip">${esc(o.status)}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span></div>${o.thesis ? `<div class="muted small">${esc(o.thesis)}</div>` : ''}<div class="nr-why">Pourquoi non retenu : ${whyNot(o)}</div></div></div>`).join('') : '<div class="muted">Rien d\'écarté pour l\'instant.</div>'}</div>`;
 }
 
+/* ---------- Comptes-rendus (recherche à la demande) ---------- */
+async function renderReports() {
+  const list = await api('/reports');
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2>Comptes-rendus</h2><div class="muted">Pose une question, le moteur fait une recherche approfondie et te sort un rapport. (≠ opportunité : c'est de l'info à comprendre.)</div></div><span class="live-dot" title="en direct"></span></div>
+    <div class="card"><div class="comment-box"><textarea id="rep-q" placeholder="Ex : Qu'est-ce qu'Oxide ? Sur quels jeux ? Est-ce un concurrent de Servitium ou complémentaire ? Quels autres frameworks de plugins existent et impactent-ils les perfs ?"></textarea><button class="btn" id="rep-go">Lancer la recherche</button></div></div>
+    <div id="reports">${list.length ? list.map(reportCard).join('') : '<div class="empty">Aucun compte-rendu. Pose ta première question ci-dessus (~$1, quelques minutes).</div>'}</div>`;
+  $('#rep-go').addEventListener('click', async () => {
+    const q = $('#rep-q').value.trim(); if (!q) return;
+    const r = await api('/reports', { method: 'POST', body: JSON.stringify({ question: q }) });
+    if (r && r.error) { toast(r.error); return; }
+    $('#rep-q').value = ''; toast('Recherche lancée — le rapport apparaîtra ici en direct.'); renderReports();
+  });
+  $('#view').querySelectorAll('.report').forEach(wireReport);
+}
+function reportCard(r) {
+  let body = '';
+  if (r.state === 'running') {
+    const pct = Math.max(2, Math.min(100, r.progress || 0));
+    let eta = '';
+    if (r.started_at && pct > 4 && pct < 100) { const el = (Date.now() - Date.parse(r.started_at)) / 1000; const rem = Math.round((el * (100 - pct)) / pct); if (rem > 0 && rem < 3600) eta = ` · ~${fmtDur(rem)} restantes`; }
+    body = `<div class="brief-running"><div class="brief-prog"><div class="brief-prog-head"><span class="trace">${esc(r.detail || 'Recherche en cours…')}</span><span class="brief-pct">${pct}%${eta}</span></div><div class="bar"><span style="width:${pct}%"></span></div></div></div>`;
+  } else if (r.state === 'failed') {
+    body = `<div class="muted small">${esc(r.detail || 'échec')}</div><button class="btn ghost" data-rerun>Relancer</button>`;
+  } else {
+    body = `<button class="btn ok" data-view-report>Voir le compte-rendu</button>`;
+  }
+  return `<div class="report" data-id="${r.id}"><div class="report-head"><div class="report-q">${esc(r.question)}</div><span class="muted small">${usd(r.cost_usd)}</span></div><div class="report-body">${body}</div><div class="report-zone"></div></div>`;
+}
+function wireReport(card) {
+  const id = card.dataset.id;
+  card.querySelector('[data-view-report]')?.addEventListener('click', async () => {
+    const z = card.querySelector('.report-zone');
+    if (z.dataset.open) { z.innerHTML = ''; z.dataset.open = ''; return; }
+    const d = await api(`/reports/${id}`);
+    z.innerHTML = `<div class="brief-doc">${d.body_md ? renderMarkdown(d.body_md) : '(vide)'}</div>${(d.sources || []).length ? `<div class="evidence"><b>Sources :</b> ${d.sources.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label || 'source')} ↗</a>`).join(' · ')}</div>` : ''}`;
+    z.dataset.open = '1';
+  });
+  card.querySelector('[data-rerun]')?.addEventListener('click', async () => {
+    await api('/reports', { method: 'POST', body: JSON.stringify({ question: card.querySelector('.report-q').textContent }) });
+    toast('Relancé'); renderReports();
+  });
+}
+
 /* ---------- Carnet de bord ---------- */
 const KIND_LABEL = { veille: 'veille', decided: 'décidé', did: 'fait', want: 'envie', can: 'possible', note: 'note', spent: 'dépense' };
 async function renderLogbook() {
@@ -504,6 +549,7 @@ function applyChanged(msg) {
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities' || VIEW === 'validated') updateOpportunitiesLive();
   else if (VIEW === 'research') renderResearch();
+  else if (VIEW === 'reports') renderReports();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'runs') renderRuns();
 }

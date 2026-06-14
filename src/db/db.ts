@@ -42,6 +42,21 @@ function migrate(db: DB): void {
   // Live veille progress, shown in the dashboard while a run is in flight.
   ensureColumn(db, 'sie_run', 'stage', 'TEXT');
   ensureColumn(db, 'sie_run', 'progress', 'INTEGER');
+  // Research reports (comptes-rendus): an owner question -> a deep researched informational report
+  // (e.g. "what is Oxide, which games, competitor or not"), distinct from actionable opportunities.
+  db.exec(`CREATE TABLE IF NOT EXISTS report (
+    id INTEGER PRIMARY KEY,
+    question TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'running', -- running | done | failed
+    progress INTEGER,
+    detail TEXT,
+    body_md TEXT,
+    sources_json TEXT,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    started_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {

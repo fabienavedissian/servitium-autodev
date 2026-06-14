@@ -9,7 +9,7 @@ import { createLogger } from '../log';
 import { spawn } from 'child_process';
 import { tasksByState, costSince, recentRuns, runDetail, addComment } from './queries';
 import { listProposals, decideProposal, proposalCounts, type ProposalStatus } from './proposals';
-import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, signalsFeed, notRetained, type DecideAction } from './opportunities';
+import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, signalsFeed, notRetained, listReports, reportDetail, type DecideAction } from './opportunities';
 
 const cfg = loadConfig();
 const log = createLogger(cfg);
@@ -147,6 +147,24 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/sie/overview') return send(res, 200, sieOverview(db, startMonth));
     if (p === '/api/sie/runs') return send(res, 200, recentSenseRuns(db));
     if (p === '/api/sie/research') return send(res, 200, { runs: recentSenseRuns(db, 30), signals: signalsFeed(db), notRetained: notRetained(db) });
+    if (p === '/api/reports' && req.method === 'GET') return send(res, 200, listReports(db));
+    if (p === '/api/reports' && req.method === 'POST') {
+      if (intelCapped) return send(res, 429, { error: capMsg });
+      const body = await readBody(req);
+      const q = String(body.question ?? '').slice(0, 500).trim();
+      if (!q) return send(res, 400, { error: 'question vide' });
+      const at = now.toISOString();
+      const ins = db.prepare("INSERT INTO report (question, state, detail, created_at, updated_at) VALUES (?, 'running', 'Lancement de la recherche...', ?, ?)").run(q, at, at);
+      const rid = Number(ins.lastInsertRowid);
+      const child = spawn(process.execPath, ['--max-old-space-size=2048', 'dist/scripts/run-report.js', String(rid)], { cwd: process.cwd(), detached: true, stdio: 'ignore', env: process.env });
+      child.unref();
+      return send(res, 200, { ok: true, id: rid });
+    }
+    const repMatch = /^\/api\/reports\/(\d+)$/.exec(p);
+    if (repMatch && req.method === 'GET') {
+      const d = reportDetail(db, Number(repMatch[1]));
+      return d ? send(res, 200, d) : send(res, 404, { error: 'not found' });
+    }
     if (p === '/api/opportunities') return send(res, 200, listOpportunities(db, url.searchParams.get('status') ?? 'open', url.searchParams.get('source') ?? 'all'));
     const oppMatch = /^\/api\/opportunities\/(\d+)$/.exec(p);
     if (oppMatch && req.method === 'GET') {
@@ -238,6 +256,7 @@ const server = http.createServer(async (req, res) => {
 setInterval(() => {
   try {
     db.prepare("UPDATE opportunity SET brief_state='failed', detail='Investigation interrompue - relance-la.' WHERE brief_state='running' AND (julianday('now') - julianday(updated_at)) * 86400 > 900").run();
+    db.prepare("UPDATE report SET state='failed', detail='Recherche interrompue - relance-la.' WHERE state='running' AND (julianday('now') - julianday(updated_at)) * 86400 > 900").run();
   } catch {
     /* best-effort */
   }
@@ -293,6 +312,7 @@ setInterval(() => {
               (SELECT COALESCE(MAX(id),0) FROM sie_run) AS mr,
               (SELECT status||'/'||COALESCE(stage,'')||'/'||COALESCE(progress,0) FROM sie_run ORDER BY id DESC LIMIT 1) AS rs,
               (SELECT COALESCE(MAX(id),0) FROM signal) AS ms,
+              (SELECT COALESCE(MAX(id),0)||'/'||COALESCE(MAX(updated_at),'') FROM report) AS mrp,
               (SELECT COALESCE(MAX(id),0) FROM logbook) AS ml`,
     )
     .get();
