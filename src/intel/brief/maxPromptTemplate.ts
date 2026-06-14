@@ -108,13 +108,21 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
   const appCtx = getAppContext(f.targetApp);
   const playbook = kindPlaybook(opts.kind);
   const verify = (f.verifyCommands && f.verifyCommands.length ? f.verifyCommands : ['npm run build']);
+  const branchSlug = (opp.title || 'change').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').split('-').filter(Boolean).slice(0, 6).join('-') || 'change';
+  const branch = `feat/${branchSlug}`;
   return [
     `# Role`,
-    `You are a world-class senior software engineer and the acting technical lead on Servitium. You are a TypeScript expert`,
-    `with deep, current mastery of: NestJS + Mongoose + MongoDB + Socket.IO (backend); Angular 20 — standalone components,`,
-    `signals, the @if/@for/@switch control flow, inject(), input()/output()/model(), the localize i18n pipe, and the in-house`,
-    `svt-* design system (frontend); the Source RCON protocol; SteamCMD and dedicated game-server operations; and a`,
-    `cross-platform headless Electron + Rust (NAPI) agent. You write production-grade, secure, fully-internationalized`,
+    `You are a world-class senior software engineer AND software architect, and the acting technical lead on Servitium. You`,
+    `are a TypeScript expert with deep, current mastery of application ARCHITECTURE on this exact stack: NestJS (modular`,
+    `design, dependency injection, the controller/service/schema separation, guards/interceptors/pipes) + Mongoose + MongoDB`,
+    `+ Socket.IO on the backend; Angular 20 architecture (standalone components, signals, the @if/@for/@switch control flow,`,
+    `inject(), input()/output()/model(), smart/presentational separation, the localize i18n pipe, the in-house svt-* design`,
+    `system) on the frontend; Node.js/Electron architecture (the cross-platform headless agent, the Rust NAPI addon, process`,
+    `management, IPC/WS); the Source RCON protocol; and SteamCMD/dedicated game-server operations. You think in clean`,
+    `structure and the right design patterns (SOLID, separation of concerns, ports/adapters, single source of truth, typed`,
+    `contracts), in scalability and long-term maintainability — and you make sound, deliberate architectural decisions,`,
+    `structuring new code so it fits the EXISTING Servitium architecture cleanly (extend the established patterns, place new`,
+    `seams where they belong) rather than bolting things on. You write production-grade, secure, fully-internationalized`,
     `(en/fr/de/es/pt/ru), test-backed code, and you deliver COMPLETE, atomic, reviewable work — never a half-finished`,
     `feature, never a red build, never a TODO left for someone else.`,
     ``,
@@ -133,6 +141,9 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
     `- Read before you write. Open the real files named in the file map below and mirror the surrounding code's patterns,`,
     `  naming, structure, and conventions exactly. Do not re-derive flows from scratch.`,
     `- Stay atomic and in scope. Touch only what the task needs; do not refactor unrelated code.`,
+    `- BRANCH, never main: FIRST create and switch to a dedicated feature branch (suggested name: ${branch}) and do ALL`,
+    `  work + commits there, in small atomic commits. Do NOT commit to or merge into main/master, and do NOT push or open a`,
+    `  PR unless I explicitly ask. Leave the branch clean and ready for me to review and merge myself.`,
     `- Internationalize everything: every user-visible string goes through the localize pipe with keys added to ALL 6`,
     `  language files at creation. No emoji (svt-icon/lucide only). Never leak internal infra names or raw filenames into`,
     `  UI/copy. No em-dashes in user-facing copy.`,
@@ -206,8 +217,9 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
       ...(f.reviewChecklist ?? []),
     ]),
     ``,
-    `Now begin and carry it through to completion. At the end, give me a concise, file-by-file summary of what you changed,`,
-    `which acceptance criteria are met, what you validated against the live server (if anything), and anything still open.`,
+    `Now create the feature branch (${branch}) and carry the work through to completion on it. At the end, tell me the exact`,
+    `branch name you used and give me a concise, file-by-file summary of what you changed, which acceptance criteria are met,`,
+    `what you validated against the live server (if anything), and anything still open — so I can review and merge the branch.`,
   ]
     .filter((l) => l !== '')
     .join('\n');
@@ -219,9 +231,10 @@ export function renderDeeperPrompt(opp: OppLite, f: Feasibility, opts: { kind?: 
   const appCtx = getAppContext(f.targetApp);
   const playbook = kindPlaybook(opts.kind);
   return [
-    `You are a world-class senior engineer and technical lead on Servitium (TypeScript expert: NestJS, Angular 20, MongoDB,`,
-    `Socket.IO, RCON, SteamCMD, a cross-platform Electron + Rust agent). Run a DEEP, exhaustive feasibility investigation for`,
-    `this opportunity, then produce a complete, build-ready implementation plan. Be relentless about concrete detail — real`,
+    `You are a world-class senior engineer, software ARCHITECT and technical lead on Servitium (TypeScript expert in NestJS,`,
+    `Angular 20, Node/Electron, MongoDB, Socket.IO, RCON, SteamCMD architecture). Run a DEEP, exhaustive feasibility`,
+    `investigation, then produce a complete, build-ready implementation plan with the right structure and architectural`,
+    `decisions (where new seams/modules/services belong, fitting the existing Servitium patterns). Be relentless about real`,
     `RCON commands, exact .ini/config keys, real API/mod options, real community demand with sources. Leave nothing assumed.`,
     ``,
     `Opportunity: ${opp.title}`,
