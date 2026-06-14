@@ -9,7 +9,10 @@ const ground = (): string => `--- SERVITIUM CONTEXT ---\n${getActiveDossier()}\n
 export function harvestPrompt(angle: string, label: string, queries: string[]): string {
   return [
     `You are the HARVEST agent for the "${label}" (${angle}) veille lane of Servitium's intelligence engine.`,
-    `Use web search for EACH of these queries and collect the most relevant RECENT results:`,
+    `Each line below is a TOPIC or REQUEST to research - it may be loosely phrased or in French. For EACH,`,
+    `extract the key entities (game names, products, frameworks like DayZ, Oxide, Carbon...) and run the most`,
+    `EFFECTIVE English web searches to find recent, on-topic results. Reformulate freely into good search terms;`,
+    `run several searches per topic if needed to truly cover it.`,
     queries.map((q, i) => `  ${i + 1}. ${q}`).join('\n'),
     `Return ONLY real results you actually found via search. Do NOT invent URLs or titles.`,
     `Output ONLY JSON: {"hits":[{"title":string,"url":string,"snippet":string,"publishedHint":string}]} (max 12 hits, dedup obvious repeats).`,
