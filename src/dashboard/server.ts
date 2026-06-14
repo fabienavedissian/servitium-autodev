@@ -176,7 +176,7 @@ const server = http.createServer(async (req, res) => {
       if (!exists) return send(res, 404, { error: 'not found' });
       if (intelCapped) return send(res, 429, { error: capMsg });
       db.prepare("UPDATE opportunity SET brief_state='running', brief_progress=0, brief_started_at=NULL, detail='Lancement de l investigation...', status=CASE WHEN status='proposed' THEN 'greenlit' ELSE status END, decided_at=COALESCE(decided_at, ?), updated_at=? WHERE id=?").run(now.toISOString(), now.toISOString(), id);
-      const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/brief-opportunity.js', String(id)], {
+      const child = spawn(process.execPath, ['--max-old-space-size=2048', 'dist/scripts/brief-opportunity.js', String(id)], {
         cwd: process.cwd(),
         detached: true,
         stdio: 'ignore',
@@ -190,7 +190,7 @@ const server = http.createServer(async (req, res) => {
       const running = db.prepare("SELECT 1 FROM sie_run WHERE run_date=? AND status='running'").get(today);
       if (running) return send(res, 409, { error: 'Une veille est déjà en cours.' });
       if (intelCapped) return send(res, 429, { error: capMsg });
-      const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-veille.js', '--force'], {
+      const child = spawn(process.execPath, ['--max-old-space-size=1536', 'dist/scripts/run-veille.js', '--force'], {
         cwd: process.cwd(),
         detached: true,
         stdio: 'ignore',
@@ -203,7 +203,7 @@ const server = http.createServer(async (req, res) => {
       if (intelCapped) return send(res, 429, { error: capMsg });
       const body = await readBody(req);
       const repoArg = typeof body.repo === 'string' && /^[a-z0-9-]+$/i.test(body.repo) ? [body.repo] : [];
-      const child = spawn(process.execPath, ['--max-old-space-size=512', 'dist/scripts/run-code-scan.js', ...repoArg], {
+      const child = spawn(process.execPath, ['--max-old-space-size=1536', 'dist/scripts/run-code-scan.js', ...repoArg], {
         cwd: process.cwd(),
         detached: true,
         stdio: 'ignore',

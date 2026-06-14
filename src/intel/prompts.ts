@@ -28,12 +28,20 @@ export function extractPrompt(angle: string, pages: { url: string; text: string 
   ].join('\n\n');
 }
 
-export function ideatePrompt(signals: { id: number; angle: string; title: string; summary: string }[], openTitles: string[], avoid: string[] = []): string {
+export function ideatePrompt(
+  signals: { id: number; angle: string; title: string; summary: string }[],
+  openTitles: string[],
+  avoid: string[] = [],
+  wants: string[] = [],
+): string {
   return [
     `You are the IDEATOR for Servitium's intelligence engine. From today's fresh signals, propose concrete OPPORTUNITIES`,
     `for Servitium: features, new-game integrations, Discord-bot evolutions, monetization, or new business lines.`,
     `Each opportunity MUST be grounded in >=1 signal id and map onto Servitium's real product/edges. Concrete, not vague:`,
     `prefer "Rust players want a shop, doable via RCON" over "integrate Rust". Let weak lanes be empty - quality over quota.`,
+    wants.length
+      ? `The owner EXPLICITLY WANTS these directions - actively look for signals that serve them and propose concrete opportunities for them when the evidence supports it:\n${wants.map((w) => `- ${w}`).join('\n')}`
+      : '',
     `Avoid duplicating anything already open: ${openTitles.length ? openTitles.join('; ') : '(none)'}.`,
     avoid.length
       ? `DO NOT propose anything that already EXISTS or the owner already REJECTED (these are corrections from the owner - respect them):\n${avoid.map((a) => `- ${a}`).join('\n')}`

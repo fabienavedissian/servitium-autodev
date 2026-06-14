@@ -172,8 +172,9 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
       // Owner corrections: rejected opportunities (with their reason) + "already exists" logbook notes.
       // These teach the engine what NOT to re-propose - the lightweight learning loop.
       const rejected = (deps.db.prepare("SELECT COALESCE(title_fr,title) AS t, comment FROM opportunity WHERE status='rejected' ORDER BY (decided_at IS NULL), decided_at DESC LIMIT 30").all() as { t: string; comment: string | null }[]).map((r) => (r.comment ? `${r.t} (raison: ${r.comment})` : r.t));
-      const ownerNotes = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('can','did') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
-      const i = await runSie(deps, rs, 'ideator', ideatePrompt(signalIds, openTitles, [...rejected, ...ownerNotes]));
+      const ownerExists = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('can','did') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
+      const ownerWants = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('want','note') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
+      const i = await runSie(deps, rs, 'ideator', ideatePrompt(signalIds, openTitles, [...rejected, ...ownerExists], ownerWants));
       const cand = parseJsonLoose<{ opportunities?: IdeaOpp[] }>(i.text)?.opportunities ?? [];
 
       // SCORE each (Sonnet) -> code computes score -> upsert + tier --------------
