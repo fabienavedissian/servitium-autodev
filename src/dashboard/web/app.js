@@ -178,7 +178,7 @@ const KIND_FR = { feature: 'feature', game: 'jeu', business: 'métier', integrat
 async function renderOpportunities() {
   const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
   const last = ov.lastRun;
-  const lastTxt = last ? `dernière veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
+  const lastTxt = last ? `dernière veille ${esc(String(last.run_date).split('#')[0])} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
   const cap = 52, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
   const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
   const statFilter = [['open', 'À traiter'], ['all', 'Tout']].map(([k, l]) => `<button data-stat="${k}" class="${OPP_STATUS === k ? 'active' : ''}">${l}</button>`).join('');
@@ -363,7 +363,7 @@ async function renderResearch() {
     <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct"></span></div>
     <div id="veille-banner">${veilleBanner(ov)}</div>
     <div class="section-title">Activité</div>
-    <div class="runs-feed">${(d.runs || []).length ? d.runs.map((r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(r.run_date)}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
+    <div class="runs-feed">${(d.runs || []).length ? d.runs.map((r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(String(r.run_date).split('#')[0])}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
     <div class="section-title">Recherches & lectures · ${(d.signals || []).length} signaux</div>
     <div class="signals">${Object.keys(byAngle).length ? Object.entries(byAngle).map(([a, sigs]) => `<div class="sig-group"><h4>${esc(ANGLE_FR[a] || a)} <span class="muted">· ${sigs.length}</span></h4>${sigs.map((s) => `<div class="sig"><div class="sig-title">${esc(s.title)}${s.source_url ? ` <a href="${esc(s.source_url)}" target="_blank" rel="noopener">${esc(s.source_domain || 'source')} ↗</a>` : ''}</div>${s.summary ? `<div class="sig-sum">${esc(s.summary)}</div>` : ''}</div>`).join('')}</div>`).join('') : '<div class="empty">Aucun signal pour l\'instant — lance une veille.</div>'}</div>
     <div class="section-title">Considéré mais non retenu · ${(d.notRetained || []).length}</div>

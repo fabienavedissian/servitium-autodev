@@ -20,8 +20,11 @@ async function main(): Promise<void> {
   const ledger = new Ledger(db);
 
   if (process.argv.includes('--force')) {
+    // Free today's once-per-day slot WITHOUT deleting (signals FK-reference the run): rename prior
+    // runs of today so a fresh run can start. Earlier the DELETE skipped 'done' runs, so a manual
+    // re-run after the day's first run silently did nothing.
     const today = new Date().toISOString().slice(0, 10);
-    db.prepare("DELETE FROM sie_run WHERE run_date=? AND status!='done'").run(today);
+    db.prepare("UPDATE sie_run SET run_date = run_date || '#' || id WHERE run_date = ? AND status != 'running'").run(today);
   }
 
   console.log('=== SIE veille starting ===');
