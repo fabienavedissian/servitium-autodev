@@ -448,6 +448,7 @@ export async function briefOpportunityById(deps: VeilleDeps, id: number): Promis
   }
   const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, feasibility_json, brief_steer, score, kind, dedup_key FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
   if (!r) return { ok: false, costUsd: 0, note: 'not found' };
+  setActiveDossier(composeGrounding(deps.db)); // full grounding (refreshed dossier + owner corrections) for on-demand briefs
   const rs: RunState = { spentUsd: 0 };
   const at = now.toISOString();
   const ok = await briefRow(deps, rs, r, at);
