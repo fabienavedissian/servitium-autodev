@@ -65,9 +65,17 @@ export function scorerPrompt(opp: { title: string; thesis: string; whyNow: strin
   ].join('\n\n');
 }
 
-export function feasibilityPrompt(opp: { title: string; thesis: string; whyNow: string; fit: string }, sources: string): string {
+export function feasibilityPrompt(
+  opp: { title: string; thesis: string; whyNow: string; fit: string },
+  sources: string,
+  prior?: { findings: string[]; unknowns: string[] },
+): string {
+  const priorBlock = prior && (prior.findings.length || prior.unknowns.length)
+    ? `A PRIOR investigation already established these findings (treat them as known, build on them, do NOT redo):\n${prior.findings.map((f) => `- ${f}`).join('\n')}\n\nFOCUS this pass on RESOLVING these still-open unknowns - dig hard until each is answered, then move it into concreteFindings and shrink the unknowns list:\n${prior.unknowns.map((u) => `- ${u}`).join('\n')}`
+    : '';
   return [
     `You are the FEASIBILITY investigator. Produce a DEEP, EXHAUSTIVE, CONCRETE feasibility dossier for this Servitium opportunity.`,
+    priorBlock,
     `Be RELENTLESS: run MANY web searches (aim for 10+), open and read the ACTUAL docs, RCON command references, .ini/config`,
     `references, mod/plugin pages, API docs, and real community threads. Cross-check every claim against a real source.`,
     `Do NOT stop at the first answer - dig until the technical mechanism is fully pinned end to end.`,

@@ -238,6 +238,7 @@ interface BriefRow {
   title_fr?: string;
   why_now_fr?: string;
   sources_json: string;
+  feasibility_json?: string;
   score: number;
 }
 
@@ -280,7 +281,17 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
     }
   };
   update();
-  const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' ')), {
+  // Cumulative deepening: a re-run ("Approfondir") builds on the prior findings and targets the
+  // still-open unknowns, so each pass resolves more and the prompt quality climbs.
+  const prior = (() => {
+    try {
+      const p = JSON.parse(r.feasibility_json || '') as { concreteFindings?: string[]; unknowns?: string[] };
+      return { findings: p.concreteFindings ?? [], unknowns: p.unknowns ?? [] };
+    } catch {
+      return undefined;
+    }
+  })();
+  const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), prior), {
     allowedTools: ['WebSearch', 'WebFetch'],
     maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
     onMessage: (msg) => {
@@ -312,8 +323,8 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
   const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
-    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, recommendation=?, unknowns_count=?, brief_state='done', brief_progress=100, detail=NULL, brief_started_at=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
-    .run(briefMd, maxPrompt, deeperPrompt, f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
+    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, feasibility_json=?, recommendation=?, unknowns_count=?, brief_state='done', brief_progress=100, detail=NULL, brief_started_at=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
+    .run(briefMd, maxPrompt, deeperPrompt, JSON.stringify(f), f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
   return true;
 }
 
@@ -342,7 +353,7 @@ export async function briefOpportunityById(deps: VeilleDeps, id: number): Promis
     deps.db.prepare("UPDATE opportunity SET brief_state='failed', detail=? WHERE id=?").run(cap.reason ?? 'plafond atteint', id);
     return { ok: false, costUsd: 0, note: cap.reason };
   }
-  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
+  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, feasibility_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
   if (!r) return { ok: false, costUsd: 0, note: 'not found' };
   const rs: RunState = { spentUsd: 0 };
   const at = now.toISOString();

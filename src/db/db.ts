@@ -35,6 +35,7 @@ function migrate(db: DB): void {
   ensureColumn(db, 'opportunity', 'detail', 'TEXT'); // live sub-status (what the investigation is doing)
   ensureColumn(db, 'opportunity', 'brief_progress', 'INTEGER'); // 0..100 live progress of the investigation
   ensureColumn(db, 'opportunity', 'brief_started_at', 'TEXT'); // for the live ETA
+  ensureColumn(db, 'opportunity', 'feasibility_json', 'TEXT'); // English feasibility -> cumulative "Approfondir"
   // Key-value store for the auto-refreshed dossier + the learned per-kind ranking bias.
   db.exec('CREATE TABLE IF NOT EXISTS sie_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)');
 }
