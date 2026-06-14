@@ -438,6 +438,14 @@ function briefActionsHTML(o) {
   const push = !o.readiness || !o.readiness.ready; // once it's ready, hide the "keep pushing" controls
   return `${readinessHTML(o)}<div class="brief-buttons"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir » (sur Max)</button><button class="btn ghost" data-view-brief>Voir le brief</button>${push ? `<button class="btn ghost" data-brief title="relance une passe d'investigation pour lever les inconnues restantes">Approfondir encore</button>` : ''}</div>${push ? `<div class="steer-box"><label class="steer-label">Orienter la prochaine passe (optionnel)</label><textarea data-steer rows="3" placeholder="Ex : vérifie que chaque commande RCON marche vraiment, ajoute les commandes admin du mode hardcore, creuse l'intégration avec Oxide..."></textarea></div>` : ''}`;
 }
+function impactedAppsHTML(o) {
+  const apps = o.impactedApps || [];
+  if (!apps.length) return '';
+  const chips = apps
+    .map((a) => `<span class="iapp" title="${esc([a.why, a.test].filter(Boolean).join(' — '))}">${esc(String(a.app || '').replace(/^servitium-/, ''))}<b>${Math.round(a.pct || 0)}%</b></span>`)
+    .join('');
+  return `<div class="impacted"><span class="impacted-lbl">Apps impactées</span>${chips}</div>`;
+}
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };
   const sources = (o.sources || []).map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label || 'source')} ${EXT}</a>`).join(' · ');
@@ -459,6 +467,7 @@ function oppCard(o) {
       ${o.why_now ? `<p><b>Pourquoi maintenant.</b> ${esc(o.why_now)}</p>` : ''}
       ${o.fit ? `<p><b>Lien.</b> ${esc(o.fit)}</p>` : ''}
       ${sources ? `<div class="evidence"><b>Sources :</b> ${sources}</div>` : ''}
+      ${impactedAppsHTML(o)}
       <button class="bd-toggle" data-bd>${CHEV}Pourquoi ce score</button>
       <div class="breakdown"><div class="bd-inner"><div class="bd-title">8 critères pondérés, calculés par code</div>${bars}</div></div>
       <div class="brief-zone"></div>

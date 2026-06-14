@@ -13,7 +13,8 @@ export interface TaskContext {
 
 export const CONVENTIONS = [
   'Servitium conventions you MUST follow:',
-  '- TypeScript. The API is NestJS; every API change ships a green mongodb-memory-server integration test.',
+  '- Tests are PER-REPO: servitium-api = green mongodb-memory-server integration test; servitium-center/-discord/-ui = Angular TestBed/karma spec; servitium-portal has NO test harness (verify by production build + visual check); servitium-electron-gui = jest with stubbed IO; servitium-autodev = jest+ts-jest. NEVER write a mongodb-memory-server test in a non-API repo.',
+  '- TypeScript strictness: the servitium-api tsconfig is NON-strict; every Angular repo + servitium-electron-gui + servitium-autodev are STRICT (no implicit any, templates type-check).',
   '- Comments: extremely sparse, English only, one short line, only when the WHY is non-obvious. Often zero.',
   '- No emoji in user-facing strings; route them through the i18n localize pipe (6 languages).',
   '- Never expose raw filenames or internal infra in user-facing copy. No em-dashes in user-facing copy.',

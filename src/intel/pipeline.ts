@@ -10,8 +10,9 @@ import { dedupSignals, signalDedupKey, domainOf } from './sensing/dedup';
 import { scoreOpportunity, tierForScore, DEFAULT_WEIGHTS } from './score/rubric';
 import * as repos from './repos';
 import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPrompt, translateOppsPrompt, translateFeasibilityPrompt } from './prompts';
-import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility } from './brief/maxPromptTemplate';
+import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility, type ImpactedApp } from './brief/maxPromptTemplate';
 import { setActiveDossier, SERVITIUM_DOSSIER } from './dossier';
+import { isGameOpp, getAppContext, testRuleFor, canonicalApp } from './appContext';
 import { kvGet } from './learning';
 
 // Base dossier (auto-refreshed) + the owner's authoritative strategic corrections (never overwritten
@@ -277,6 +278,25 @@ interface BriefRow {
   feasibility_json?: string;
   brief_steer?: string;
   score: number;
+  kind?: string;
+  dedup_key?: string;
+}
+
+// Keep impactedApps coherent before persisting: every app canonicalized + valid, pct >= 0, the primary
+// app present as impactedApps[0], and never a memory-server test attached to a non-API app.
+function normalizeImpactedApps(apps: ImpactedApp[] | undefined, targetApp: string): ImpactedApp[] | undefined {
+  if (!apps || !apps.length) return apps;
+  const cleaned = apps
+    .map((a) => ({ app: canonicalApp(a.app), pct: Math.max(0, Math.round(Number(a.pct) || 0)), why: a.why ?? '', spec: a.spec ?? '', test: a.test ?? '' }))
+    .filter((a) => a.app);
+  for (const a of cleaned) {
+    if (a.app !== 'servitium-api' && /mongodb-memory-server/i.test(a.test)) a.test = testRuleFor(a.app);
+    if (!a.test) a.test = testRuleFor(a.app);
+  }
+  const primary = canonicalApp(targetApp);
+  const idx = cleaned.findIndex((a) => a.app === primary);
+  if (idx > 0) cleaned.unshift(cleaned.splice(idx, 1)[0]);
+  return cleaned;
 }
 
 // Translate owner-facing opportunity fields EN -> FR (display only) and store in the _fr columns.
@@ -337,6 +357,10 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   })();
   // AUTO-LOOP: keep investigating (each pass builds on prior findings + targets open BLOCKING unknowns)
   // until zero blockers remain (READY), or no progress, or passes/budget exhausted. No manual re-clicking.
+  // The targetApp's concrete file map (known after pass 1) + the new-game playbook (game opps) are fed
+  // back into each subsequent pass so the brief digs in the right files instead of re-deriving them.
+  const isGame = isGameOpp(r.kind, r.dedup_key);
+  let appCtx = '';
   let f: Feasibility | undefined;
   let prevBlockers = Number.POSITIVE_INFINITY;
   while (pass < maxPasses && briefSpent < totalBudget) {
@@ -345,7 +369,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
     activity = pass === 1 ? 'Investigation profonde…' : 'Approfondissement automatique…';
     update();
     const perPass = Math.min(deps.cfg.PER_BRIEF_BUDGET_USD, totalBudget - briefSpent);
-    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer), {
+    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer, { appContext: appCtx, isGame }), {
       allowedTools: ['WebSearch', 'WebFetch'],
       maxBudgetUsd: perPass,
       onMessage: (msg) => {
@@ -366,7 +390,8 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
       break; // a later pass produced nothing usable -> keep the last good pass
     }
     addFindings(parsed.concreteFindings);
-    f = { ...parsed, concreteFindings: accFindings.slice() };
+    f = { ...parsed, concreteFindings: accFindings.slice(), impactedApps: normalizeImpactedApps(parsed.impactedApps, parsed.targetApp) };
+    appCtx = getAppContext(parsed.targetApp); // feed the chosen app's file map into the next pass
     const blockers = (parsed.unknowns ?? []).length;
     if (blockers === 0) break;            // READY: nothing left to resolve from research
     if (blockers >= prevBlockers) break;  // no progress this pass -> stop pushing
@@ -382,7 +407,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   turns = maxTurns; pass = maxPasses;
   update();
   const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
-  const maxPrompt = renderMaxPrompt(oppEn, f, r.score); // English (for the coding session)
+  const maxPrompt = renderMaxPrompt(oppEn, f, r.score, { isGame }); // English (for the coding session)
   const deeperPrompt = renderDeeperPrompt(oppEn, f);
   // French brief for the owner to read.
   const tr = await runSie(deps, rs, 'translate', translateFeasibilityPrompt({ verdict: f.verdict, concreteFindings: f.concreteFindings, unknowns: f.unknowns, fieldUnknowns: f.fieldUnknowns, approachSteps: f.approachSteps, dataModel: f.dataModel, outOfScope: f.outOfScope, acceptanceCriteria: f.acceptanceCriteria }));
@@ -400,7 +425,7 @@ async function briefTopFlagships(deps: VeilleDeps, rs: RunState, at: string): Pr
   const topN = deps.cfg.SIE_BRIEF_TOP_N;
   if (topN <= 0) return 0;
   const rows = deps.db
-    .prepare(`SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, score FROM opportunity WHERE flagship=1 AND brief_md IS NULL AND status='proposed' ORDER BY score DESC LIMIT ?`)
+    .prepare(`SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, score, kind, dedup_key FROM opportunity WHERE flagship=1 AND brief_md IS NULL AND status='proposed' ORDER BY score DESC LIMIT ?`)
     .all(topN) as BriefRow[];
   let n = 0;
   for (const r of rows) {
@@ -420,7 +445,7 @@ export async function briefOpportunityById(deps: VeilleDeps, id: number): Promis
     deps.db.prepare("UPDATE opportunity SET brief_state='failed', detail=? WHERE id=?").run(cap.reason ?? 'plafond atteint', id);
     return { ok: false, costUsd: 0, note: cap.reason };
   }
-  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, feasibility_json, brief_steer, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
+  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, feasibility_json, brief_steer, score, kind, dedup_key FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
   if (!r) return { ok: false, costUsd: 0, note: 'not found' };
   const rs: RunState = { spentUsd: 0 };
   const at = now.toISOString();

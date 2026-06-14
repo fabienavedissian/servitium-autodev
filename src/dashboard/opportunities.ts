@@ -72,7 +72,12 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
     const { feasibility_json, ...rest } = r;
     const bd = breakdown(String(r.feature_json ?? '{}'), Number(r.signal_count ?? 1), r.last_signal_at as string | undefined);
     let fieldCount = 0;
-    try { fieldCount = ((JSON.parse(String(feasibility_json || '{}')) as { fieldUnknowns?: string[] }).fieldUnknowns ?? []).length; } catch { /* none */ }
+    let impactedApps: { app: string; pct: number; why?: string; test?: string }[] = [];
+    try {
+      const fj = JSON.parse(String(feasibility_json || '{}')) as { fieldUnknowns?: string[]; impactedApps?: { app: string; pct: number; why?: string; test?: string }[] };
+      fieldCount = (fj.fieldUnknowns ?? []).length;
+      impactedApps = fj.impactedApps ?? [];
+    } catch { /* none */ }
     const blockers = Number(r.unknowns_count ?? 0);
     return {
       ...rest,
@@ -80,6 +85,7 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
       breakdown: bd,
       promptQuality: promptQuality((r.recommendation as string) ?? null, blockers, bd.evidenceCoverage),
       fieldCount,
+      impactedApps,
       readiness: readinessOf((r.recommendation as string) ?? null, blockers, fieldCount, !!r.has_brief),
       integration: integrationVerdictOf((r.integration_state as string) ?? null, (r.integration_score as number) ?? null),
     };

@@ -1,13 +1,24 @@
 import { CONVENTIONS } from '../../agents/prompts';
+import { getAppContext, testRuleFor, NEW_GAME_PLAYBOOK } from '../appContext';
 
 // The hybrid deep-investigation output: a deterministic concrete brief (no extra LLM call) + a
 // ready-to-paste Max prompt (the economic linchpin: the human runs it on the flat-rate plan) + an
 // optional "go deeper on Max" investigation prompt. SIE emits TEXT, never code.
 
+// One repo a change touches: rough effort share + the app-local spec + the app-CORRECT test rule.
+export interface ImpactedApp {
+  app: string;
+  pct: number;
+  why: string;
+  spec: string;
+  test: string;
+}
+
 export interface Feasibility {
   recommendation: 'build-now' | 'incubate' | 'park' | 'drop';
   verdict: string;
   targetApp: string;
+  impactedApps?: ImpactedApp[]; // every repo touched (impactedApps[0].app === targetApp); pct sums ~100
   concreteFindings: string[];
   unknowns: string[]; // BLOCKING: must be resolved by more research before building
   fieldUnknowns?: string[]; // only confirmable on a live server during dev — NOT blockers, validate while building
@@ -18,6 +29,12 @@ export interface Feasibility {
   testStrategy?: string;
   verifyCommands: string[];
   reviewChecklist: string[];
+}
+
+// The impacted-apps list, or a single-row fallback on the targetApp so renders never go empty.
+function impactedOf(f: Feasibility): ImpactedApp[] {
+  if (f.impactedApps && f.impactedApps.length) return f.impactedApps;
+  return [{ app: f.targetApp, pct: 100, why: f.verdict, spec: '(voir approche)', test: testRuleFor(f.targetApp) }];
 }
 
 export interface OppLite {
@@ -37,6 +54,11 @@ export function renderBriefMd(opp: OppLite, f: Feasibility, score: number): stri
     `# ${opp.title}`,
     `**Verdict (${f.recommendation}, faisabilite ${score}/100) :** ${f.verdict}`,
     `**App cible :** ${f.targetApp}`,
+    ``,
+    `## Apps impactees`,
+    `| App | % | Ce qui change | Tests |`,
+    `| --- | --- | --- | --- |`,
+    impactedOf(f).map((a) => `| ${a.app} | ${a.pct} | ${a.why} | ${a.test} |`).join('\n'),
     ``,
     `## Pourquoi maintenant`,
     opp.whyNow ?? '(n/a)',
@@ -65,7 +87,9 @@ export function renderBriefMd(opp: OppLite, f: Feasibility, score: number): stri
 
 // The ready-to-paste Max prompt. Hard-constraints block imported VERBATIM from agents/prompts.ts
 // CONVENTIONS so the manual prompt can never drift from the autonomous one.
-export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number): string {
+export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opts: { isGame?: boolean } = {}): string {
+  const apps = impactedOf(f);
+  const appCtx = getAppContext(f.targetApp);
   return [
     `# Who you are`,
     `You are a SENIOR FULL-STACK ENGINEER and the technical lead on Servitium — a deep-admin platform for survival/RCON`,
@@ -81,9 +105,10 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number): st
     `you will touch. Do not re-derive flows from source.`,
     ``,
     `# Servitium architecture (respect it — extend, never reinvent)`,
-    `- 5 apps in the monorepo: servitium-api (NestJS + Mongoose + MongoDB + Socket.IO), servitium-center (Angular 20 admin`,
-    `  panel), servitium-portal (Angular player site), servitium-ui (shared svt-* design system), and the agent (Electron +`,
-    `  a Rust game_db_reader, installed on the game host, piloted entirely from Center). Cross-process WS types live in /shared.`,
+    `- 7 apps + shared/: servitium-api (NestJS + Mongoose + MongoDB + Socket.IO), servitium-center (Angular 20 admin panel),`,
+    `  servitium-portal (Angular player site), servitium-ui (shared svt-* design system + @servitium/discord lib), the agent`,
+    `  (headless Electron + a Rust game_db_reader, on the game host, piloted from Center), servitium-discord (the free Discord`,
+    `  product), and servitium-autodev (this engine). Cross-process WS types + the entitlements matrix live in /shared.`,
     `- Two-collection model: Server = the community/brand (name, shop, donations, raid protection, wars, quests, wipes,`,
     `  banner, players — one Server is billable) vs GameInstance = the runtime the agent pilots (ip/ports/passwords, mods,`,
     `  gameMode, heartbeat, desiredState, install paths). Server.gameInstanceId links them; the agent WS room is keyed by gameInstanceId.`,
@@ -106,6 +131,15 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number): st
     list(f.concreteFindings),
     `- Sources: ${sourceList(opp.sources)}`,
     ``,
+    appCtx ? `# Concrete file map for ${f.targetApp} (the primary app — open these, do NOT re-derive the layout)` : '',
+    appCtx,
+    appCtx ? `` : '',
+    `# Apps impacted (open each repo you touch; respect each app's OWN test + strictness rule)`,
+    apps.map((a) => `- ${a.app} (~${a.pct}%): ${a.spec} | Test: ${a.test}`).join('\n'),
+    ``,
+    opts.isGame ? `# New-game integration playbook (this opportunity adds a game — follow the per-repo wiring + gotchas)` : '',
+    opts.isGame ? NEW_GAME_PLAYBOOK : '',
+    opts.isGame ? `` : '',
     (f.unknowns ?? []).length ? `# Resolve these unknowns FIRST (quick spike, STOP and report if any is a blocker)` : '',
     (f.unknowns ?? []).length ? list(f.unknowns) : '',
     (f.fieldUnknowns ?? []).length ? `` : '',
@@ -123,8 +157,9 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number): st
     `# Acceptance criteria (each must be objectively checkable)`,
     list(f.acceptanceCriteria),
     ``,
-    `# Test strategy`,
-    f.testStrategy ?? 'API: green mongodb-memory-server integration test. Angular: spec + i18n keys in all 6 languages.',
+    `# Test strategy (per app — the mongodb-memory-server rule is API-ONLY; never write one in an Angular repo)`,
+    apps.map((a) => `- ${a.app}: ${a.test}`).join('\n'),
+    f.testStrategy ? `Notes: ${f.testStrategy}` : '',
     ``,
     `# Build plan for THIS session`,
     `1. Confirm the unknowns above with a quick spike; STOP and report if any is a blocker.`,
@@ -155,6 +190,8 @@ export function renderDeeperPrompt(opp: OppLite, f: Feasibility): string {
     list(f.concreteFindings),
     `Known unknowns to fully resolve: ${(f.unknowns ?? []).join('; ') || '(discover them)'}`,
     `Sources so far: ${sourceList(opp.sources)}`,
+    ``,
+    getAppContext(f.targetApp) ? `Concrete file map for ${f.targetApp} (build on this, do not re-derive it):\n${getAppContext(f.targetApp)}` : '',
     ``,
     `Deliver: (1) a verified feasibility verdict, (2) the exact technical mechanism end-to-end, (3) a phased build`,
     `plan naming real files in the Servitium monorepo, (4) risks + edge cases, (5) a test strategy. Read CLAUDE.md`,

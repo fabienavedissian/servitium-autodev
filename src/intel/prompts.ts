@@ -1,5 +1,6 @@
 import { getActiveDossier } from './dossier';
 import { FEATURE_KEYS } from './score/rubric';
+import { NEW_GAME_PLAYBOOK, TARGET_APPS } from './appContext';
 
 // All SIE agents output STRICT JSON only (parsed with parseJsonLoose). They never pick the next
 // stage and never compute the final score — the FSM/code does. Grounding is the dossier blob.
@@ -81,14 +82,19 @@ export function feasibilityPrompt(
   sources: string,
   prior?: { findings: string[]; unknowns: string[] },
   steer?: string,
+  opts: { appContext?: string; isGame?: boolean } = {},
 ): string {
   const priorBlock = prior && (prior.findings.length || prior.unknowns.length)
     ? `A PRIOR investigation already established these findings (treat them as known, build on them, do NOT redo):\n${prior.findings.map((f) => `- ${f}`).join('\n')}\n\nFOCUS this pass on RESOLVING these still-open unknowns - dig hard until each is answered, then move it into concreteFindings and shrink the unknowns list:\n${prior.unknowns.map((u) => `- ${u}`).join('\n')}`
     : '';
   const steerBlock = steer && steer.trim() ? `THE OWNER EXPLICITLY ASKS YOU TO ALSO INVESTIGATE/VERIFY THIS - make it a TOP priority of this pass and report concrete findings on it:\n"${steer.trim()}"` : '';
+  const appBlock = opts.appContext ? `THE TARGET APP'S CONCRETE FILE MAP (dig in THESE real files, cite them in approachSteps/impactedApps, do NOT re-derive the layout):\n${opts.appContext}` : '';
+  const gameBlock = opts.isGame ? `THIS OPPORTUNITY ADDS A NEW GAME. Use this exhaustive new-game playbook as the backbone of approachSteps + impactedApps - it already names every per-repo wiring point, the 3 Rust gotchas (WebSocket RCON, no SQLite, server.cfg not INI), and the Steam app IDs:\n${NEW_GAME_PLAYBOOK}` : '';
   return [
     `You are the FEASIBILITY investigator. Produce a DEEP, EXHAUSTIVE, CONCRETE feasibility dossier for this Servitium opportunity.`,
     steerBlock,
+    appBlock,
+    gameBlock,
     priorBlock,
     `Be RELENTLESS: run MANY web searches (aim for 10+), open and read the ACTUAL docs, RCON command references, .ini/config`,
     `references, mod/plugin pages, API docs, and real community threads. Cross-check every claim against a real source.`,
@@ -108,10 +114,19 @@ export function feasibilityPrompt(
     `the real game server / live RCON / the actual runtime, it is a "fieldUnknowns" item - NOT a blocker, validated during the`,
     `dev itself. AIM TO LEAVE "unknowns" EMPTY: the prompt is READY when zero blocking unknowns remain (only fieldUnknowns may`,
     `stay). Only keep a blocker if it is genuinely unresolvable from research. Never bluff or invent.`,
+    `ENUMERATE EVERY APP THIS CHANGE TOUCHES. Servitium changes are usually cross-cutting (a new game touches 6 of 7 repos; an`,
+    `entitlement change touches servitium-api + center + portal + shared). For EACH impacted app give: a rough effort PERCENTAGE`,
+    `(the impactedApps array sums to ~100), one line of WHY, an explicit app-local SPEC line, and the CORRECT test requirement for`,
+    `THAT app - the API uses a mongodb-memory-server integration test; servitium-center/servitium-discord/servitium-ui use Angular`,
+    `TestBed/karma; servitium-portal has NO test harness (verify by build + visual); servitium-electron-gui uses jest with stubbed`,
+    `IO; servitium-autodev uses jest+ts-jest. NEVER assign a mongodb-memory-server test to a non-API app. Set targetApp to the`,
+    `PRIMARY repo (the one holding the central change) and make impactedApps[0] that same app.`,
     `Opportunity: ${opp.title}\nThesis: ${opp.thesis}\nWhy now: ${opp.whyNow}\nFit: ${opp.fit}\nSources: ${sources}`,
     `Work entirely in English for max quality; a separate step translates the brief for display.`,
     `Output ONLY JSON: {"recommendation":"build-now|incubate|park|drop","verdict":"2-3 sentences owner-facing",`,
-    `"targetApp":"servitium-api|center|portal|ui|electron-gui|new-app","concreteFindings":["real commands/config/API details, each specific"],`,
+    `"targetApp":"${TARGET_APPS.join('|')}",`,
+    `"impactedApps":[{"app":"<one of ${TARGET_APPS.join('|')}>","pct":0,"why":"one line","spec":"explicit app-local spec","test":"the app-correct test rule"}],`,
+    `"concreteFindings":["real commands/config/API details, each specific"],`,
     `"unknowns":["BLOCKING - keep ONLY if unresolvable by research"],"fieldUnknowns":["confirm on a live server during dev - not a blocker"],"approachSteps":["step naming real files/dirs"],"dataModel":string,"outOfScope":string,`,
     `"acceptanceCriteria":["objectively checkable"],"testStrategy":string,"verifyCommands":["npm run build", "..."],"reviewChecklist":["..."]}.`,
     ground(),

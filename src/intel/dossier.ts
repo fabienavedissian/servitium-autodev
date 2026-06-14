@@ -1,62 +1,11 @@
-// Phase 0 grounding: a hand-seeded "what Servitium is" blob (from CLAUDE.md + MEMORY.md). Every
-// sensing prompt is anchored on this so opportunities map onto the REAL product, not a generic SaaS,
-// and so the ideator does not re-propose features that already exist. Phase 1 auto-refreshes this
-// weekly from the real CLAUDE.md / MEMORY.md / app READMEs; for now, re-paste when it feels stale.
-export const SERVITIUM_DOSSIER = `
-SERVITIUM - what it is
-- A deep-admin platform for game-server COMMUNITIES. NOT a server hoster. The value is deep
-  administration + community tooling, not renting boxes. No anti-DDoS as a selling point.
-- Positioning: deep-admin platform for survival/RCON games (Conan Exiles + Soulmask today).
-- Five apps: servitium-api (NestJS + Mongoose + MongoDB + Socket.IO), servitium-center (Angular 20
-  admin panel, standalone components + signals, 6 languages), servitium-portal (Angular player site),
-  servitium-ui (shared design system, svt-* components), and a servitium agent (Electron + a Rust
-  game_db_reader) installed on game-server hosts (Windows AND Linux), piloted entirely from Center.
-- Two-collection model: Server (the community/brand: name, shop, donations, raid protection, wars,
-  quests, Discord config, banner, players, wipes - one is billable) and GameInstance (the runtime the
-  agent pilots: ip/ports/passwords, mods, gameMode, heartbeat, desiredState, install paths).
+// Phase 0 grounding: the "what Servitium is" blob anchoring every sensing/scoring/feasibility/brief
+// prompt, so opportunities map onto the REAL product (not a generic SaaS) and the ideator never
+// re-proposes shipped features. Sourced from the exhaustive service-by-service audit corpus
+// (docs/engine-context-corpus, generated into ./generatedContext). Phase 1 (kb/refresh.ts) will
+// auto-refresh this from CLAUDE.md / READMEs; until then re-run scripts/gen-context.js after an audit.
+import { IMPROVED_DOSSIER } from './generatedContext';
 
-FEATURES THAT ALREADY EXIST (do NOT re-propose these; only deepen/extend them)
-- Shop + donations (0% commission; manual-donation friction is the upsell), raid protection, wars,
-  bounty hunt, wipe management, live map, quests/missions (daily/weekly, snapshot progress, auto-claim).
-- The LIVE/interactive map ALREADY handles both Conan maps (Exiled Lands + Isle of Siptah). Wipe
-  management already exists. Do not propose these as new - only genuine extensions.
-- A Discord bot: tickets, gifts (items DB with real icons; ticket gift buttons), per-guild onboarding.
-- Host management (each VPS = a Host with a fingerprint UUID, 60s heartbeat; setup wizard shipped).
-- Items DB + admin-gift send; game-update tracking (Conan/Soulmask auto-update via SteamCMD).
-- A standalone Servitium-for-Discord product (discord.servitium.org): free bot to advertise Servitium,
-  httpOnly-cookie Discord OAuth, per-guild onboarding; agent-free = free / agent = paid.
-
-BUSINESS MODEL
-- Freemium: a free tier + Pro. Manual donation friction = the upsell; 0% commission; cashback is Pro.
-- Revenue lives in the Pro tier and the Discord product. Retention lives in admin power + community.
-
-TECH EDGES TO LEVERAGE (a real moat)
-- The Rust game_db_reader (reads game DBs directly), the RCON layer, the shared Discord lib (parity
-  Center <-> Discord app), a cross-platform headless agent. Conan is on UE5 since May 2026.
-
-ROADMAP / DIRECTION (what we WANT)
-- More games (Rust is a priority candidate, then ARK and other survival/RCON titles).
-- Refactor/optimize/secure the API; harmonize CSS across Center/UI; close i18n gaps (6 langs).
-- Finish + grow the Discord product; explore Discord-bot monetization.
-- Possibly entirely new business lines if a strong one appears.
-- AutoDev (servitium-autodev) - THIS intelligence engine - is itself a core Servitium product and the
-  owner's command center. Propose features that make AutoDev BETTER: smarter/broader intelligence,
-  higher-quality information, new useful views/metrics, a more incredible dashboard UX, deeper
-  self-improvement. Treat "improve AutoDev itself" as a first-class opportunity kind.
-
-CONVENTIONS (respect in any proposal)
-- 6 languages (en/fr/de/es/pt/ru); no emoji in UI (svt-icon/lucide); never expose internal infra
-  names (OVH, OPNsense, WireGuard, PM2, nginx, vRack) in user-visible copy; no em-dashes in copy;
-  security-first; every API change ships a green mongodb-memory-server integration test.
-
-STRATEGIC LENS for scoring opportunities
-- Dead-center = deepens admin/community tooling for survival/RCON games, OR strengthens the freemium
-  upsell, OR leverages the agent/Rust/Discord edges. Off-mission = becoming a generic host.
-- BattleMetrics is NOT a direct competitor. It is a GLOBAL/GENERIC tool covering ALL game servers;
-  Servitium is a SPECIALIZED deep-admin platform for a community's OWN servers. At most cite it as a
-  reference for what generic tools lack (no shop, no in-game economy, no 0% donations) - never frame
-  Servitium as competing with it head-on.
-`.trim();
+export const SERVITIUM_DOSSIER = IMPROVED_DOSSIER;
 
 // The ACTIVE dossier: the auto-refreshed version (from CLAUDE.md + READMEs) when present, else the
 // hand-seeded constant. The pipeline sets it at run start so every prompt stays current.

@@ -36,7 +36,9 @@ const APP_TO_REPO: Record<string, string> = {
   center: 'servitium-center', 'servitium-center': 'servitium-center',
   portal: 'servitium-portal', 'servitium-portal': 'servitium-portal',
   ui: 'servitium-ui', 'servitium-ui': 'servitium-ui',
-  'electron-gui': 'servitium-electron-gui', 'servitium-electron-gui': 'servitium-electron-gui',
+  'electron-gui': 'servitium-electron-gui', 'servitium-electron-gui': 'servitium-electron-gui', agent: 'servitium-electron-gui',
+  discord: 'servitium-discord', 'servitium-discord': 'servitium-discord',
+  autodev: 'servitium-autodev', 'servitium-autodev': 'servitium-autodev',
 };
 
 // Fresh clone into an isolated dir so it never clashes with the rotating code-scan checkout.
