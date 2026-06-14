@@ -162,6 +162,12 @@ function wireProp(card) {
 
 /* ---------- Opportunités (Intelligence Engine) ---------- */
 const scoreClass = (s) => (s >= 85 ? 'flag' : s >= 65 ? 'good' : 'mid');
+function veilleBanner(ov) {
+  const r = ov && ov.lastRun;
+  if (!r || r.status !== 'running') return '';
+  const pct = Math.max(2, Math.min(100, r.progress || 0));
+  return `<div class="veille-banner"><div class="spinner"></div><div class="vb-main"><div class="vb-head"><b>Veille en cours</b> <span class="muted small">${esc(r.stage || 'démarrage…')}</span><span class="vb-pct">${pct}%</span></div><div class="bar"><span style="width:${pct}%"></span></div></div></div>`;
+}
 const GAME_APPID = { rust: 252490, dayz: 221100, ark: 346110, 'v rising': 1604030, vrising: 1604030, 'conan exiles': 440900, conan: 440900, soulmask: 2646460, palworld: 1623730, enshrouded: 1203620, valheim: 892970, "garry's mod": 4000, 's&box': 4000, "7 days to die": 251570, 'project zomboid': 108600 };
 function gameImage(title) {
   const t = (title || '').toLowerCase();
@@ -181,6 +187,7 @@ async function renderOpportunities() {
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
       <div style="display:flex;gap:10px;align-items:center"><span class="live-dot" title="en direct"></span><button class="btn ghost" id="scan-code">Analyser le code</button><button class="btn" id="run-now">Lancer la veille</button></div></div>
+    <div id="veille-banner">${veilleBanner(ov)}</div>
     <div class="grid kpis">
       <div class="card kpi"><div class="label">Opportunités ouvertes</div><div class="value">${ov.openOpportunities}</div><div class="sub">${ov.flagshipOpen} phares</div></div>
       <div class="card kpi"><div class="label">Dépense intel (mois)</div><div class="value">${usd(ov.intelMonthUsd)}</div><div class="sub">plafond ${usd(cap)} ~ 50 EUR</div><div class="bar ${monPct > 80 ? 'warn' : ''}"><span style="width:${monPct}%"></span></div></div>
@@ -332,10 +339,11 @@ async function updateOpportunitiesLive() {
     else { const n = h(oppCard(o)); wireOpp(n); container.appendChild(n); }
   }
   container.querySelectorAll('.opp').forEach((c) => { if (!seen.has(c.dataset.id)) c.remove(); });
-  // KPIs (cheap, no layout disruption)
+  // KPIs + live veille banner (cheap, no layout disruption)
   const k = $('#view').querySelectorAll('.kpi .value');
   if (k[0]) k[0].textContent = ov.openOpportunities;
   if (k[1]) k[1].textContent = usd(ov.intelMonthUsd);
+  const vb = $('#veille-banner'); if (vb) vb.innerHTML = veilleBanner(ov);
 }
 
 /* ---------- Veille (transparence : tout ce que le moteur a vu) ---------- */
@@ -348,11 +356,12 @@ function whyNot(o) {
   return `score ${o.score}/100 sous le seuil (65) — points faibles : ${weak.join(', ')}`;
 }
 async function renderResearch() {
-  const d = await api('/sie/research');
+  const [d, ov] = await Promise.all([api('/sie/research'), api('/sie/overview')]);
   const byAngle = {};
   (d.signals || []).forEach((s) => { (byAngle[s.angle] = byAngle[s.angle] || []).push(s); });
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct"></span></div>
+    <div id="veille-banner">${veilleBanner(ov)}</div>
     <div class="section-title">Activité</div>
     <div class="runs-feed">${(d.runs || []).length ? d.runs.map((r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(r.run_date)}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
     <div class="section-title">Recherches & lectures · ${(d.signals || []).length} signaux</div>
@@ -494,6 +503,7 @@ function applyChanged(msg) {
   if (OPEN_RUN) return updateRunDetailLive();
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities' || VIEW === 'validated') updateOpportunitiesLive();
+  else if (VIEW === 'research') renderResearch();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'runs') renderRuns();
 }

@@ -290,3 +290,8 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .nr-why { color: var(--amber); font-size: 12px; margin-top: 5px; }
 /* Game thumbnail on opportunity cards */
 .opp-img { width: 92px; height: 43px; border-radius: 7px; object-fit: cover; flex: none; border: 1px solid var(--line); }
+
+.veille-banner { display: flex; align-items: center; gap: 13px; padding: 12px 16px; background: linear-gradient(90deg, rgba(110,168,254,0.10), transparent); border: 1px solid #234063; border-radius: 11px; margin-bottom: 16px; }
+.veille-banner .vb-main { flex: 1; }
+.veille-banner .vb-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
+.veille-banner .vb-pct { margin-left: auto; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }

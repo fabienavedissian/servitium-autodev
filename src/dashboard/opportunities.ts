@@ -112,7 +112,7 @@ export function decideOpportunity(db: DB, id: number, action: DecideAction, comm
 }
 
 export function sieOverview(db: DB, monthStartIso: string): Record<string, unknown> {
-  const last = db.prepare('SELECT run_date, status, signals_new, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run ORDER BY id DESC LIMIT 1').get() ?? null;
+  const last = db.prepare('SELECT run_date, status, stage, progress, signals_new, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run ORDER BY id DESC LIMIT 1').get() ?? null;
   const intelMonth = (db.prepare("SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE scope='intel' AND created_at >= ?").get(monthStartIso) as { s: number }).s;
   const counts = db.prepare("SELECT COUNT(*) AS open FROM opportunity WHERE status IN ('proposed','greenlit','accepted')").get() as { open: number };
   const flagship = db.prepare("SELECT COUNT(*) AS n FROM opportunity WHERE flagship=1 AND status IN ('proposed','greenlit','accepted')").get() as { n: number };

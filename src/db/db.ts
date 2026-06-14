@@ -39,6 +39,9 @@ function migrate(db: DB): void {
   ensureColumn(db, 'opportunity', 'brief_steer', 'TEXT'); // owner's extra instruction to steer the next investigation
   // Key-value store for the auto-refreshed dossier + the learned per-kind ranking bias.
   db.exec('CREATE TABLE IF NOT EXISTS sie_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)');
+  // Live veille progress, shown in the dashboard while a run is in flight.
+  ensureColumn(db, 'sie_run', 'stage', 'TEXT');
+  ensureColumn(db, 'sie_run', 'progress', 'INTEGER');
 }
 
 function ensureColumn(db: DB, table: string, col: string, type: string): void {

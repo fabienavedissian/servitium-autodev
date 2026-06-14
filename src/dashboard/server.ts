@@ -291,7 +291,8 @@ setInterval(() => {
       `SELECT (SELECT COALESCE(MAX(id),0) FROM opportunity) AS mo,
               (SELECT COALESCE(MAX(updated_at),'') FROM opportunity) AS mou,
               (SELECT COALESCE(MAX(id),0) FROM sie_run) AS mr,
-              (SELECT status FROM sie_run ORDER BY id DESC LIMIT 1) AS rs,
+              (SELECT status||'/'||COALESCE(stage,'')||'/'||COALESCE(progress,0) FROM sie_run ORDER BY id DESC LIMIT 1) AS rs,
+              (SELECT COALESCE(MAX(id),0) FROM signal) AS ms,
               (SELECT COALESCE(MAX(id),0) FROM logbook) AS ml`,
     )
     .get();

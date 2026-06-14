@@ -101,7 +101,21 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
   const runDate = at.slice(0, 10);
   const rs: RunState = { spentUsd: 0 };
   const log = deps.log ?? (() => {});
-  const stage = (s: string, d = '') => deps.onStage?.(s, d);
+  let pgDone = 0;
+  let pgTotal = 1;
+  const stageProgress = (s: string): number => {
+    if (s === 'PLAN') return 2;
+    if (s === 'HARVEST' || s === 'FETCH' || s === 'EXTRACT') return Math.min(70, 5 + Math.round((pgDone / pgTotal) * 62));
+    return { IDEATE: 75, SCORE: 85, TRANSLATE: 92, BRIEF: 96, PUBLISH: 99 }[s] ?? 50;
+  };
+  const stage = (s: string, d = '') => {
+    deps.onStage?.(s, d);
+    try {
+      if (runId) deps.db.prepare('UPDATE sie_run SET stage=?, progress=? WHERE id=?').run(d ? `${s} — ${d}` : s, stageProgress(s), runId);
+    } catch {
+      /* best-effort */
+    }
+  };
   setActiveDossier(composeGrounding(deps.db)); // auto-refreshed context + owner strategic corrections
 
   // Intel monthly/daily sub-cap kill-switch (the ~50 EUR guarantee).
@@ -125,7 +139,8 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
     if (wantQueries.length) {
       angles.unshift({ key: 'owner', label: 'Priorités du propriétaire', weight: 12, cadence: 'daily', queryTemplates: wantQueries, freshnessDays: 30 });
     }
-    stage('PLAN', `${angles.length} angles today`);
+    pgTotal = angles.length || 1;
+    stage('PLAN', `${angles.length} angles aujourd'hui`);
     const known = repos.knownSignalKeys(deps.db, daysAgoIso(now, 30));
 
     // HARVEST + FETCH + EXTRACT + DEDUP, per angle ----------------------------
@@ -175,6 +190,7 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
         );
         signalIds.push({ id, angle: s.angle, title: s.title, summary: s.summary ?? '' });
       }
+      pgDone += 1;
     }
 
     // IDEATE (Sonnet, 1 call) -------------------------------------------------
