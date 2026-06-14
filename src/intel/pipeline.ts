@@ -245,7 +245,7 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
     }
 
     const status = overRunBudget() ? 'partial-budget' : 'done';
-    appendLogbook(deps.db, 'veille', `ran veille: ${signalIds.length} new signals, ${opportunities} opportunities, ${briefs} briefs ($${rs.spentUsd.toFixed(2)})`, at);
+    appendLogbook(deps.db, 'veille', `veille : ${signalIds.length} signaux, ${opportunities} opportunités, ${briefs} briefs ($${rs.spentUsd.toFixed(2)})`, at);
     repos.finishRun(deps.db, runId, status, { cost_usd: rs.spentUsd, opportunities, briefs, signals_new: signalIds.length, angles_run: angles.length, queries_run: queriesRun, hits_fetched: hitsFetched }, at);
     return { runId, status, signalsNew: signalIds.length, opportunities, briefs, costUsd: rs.spentUsd };
   } catch (e) {
@@ -395,7 +395,7 @@ export async function briefOpportunityById(deps: VeilleDeps, id: number): Promis
   const rs: RunState = { spentUsd: 0 };
   const at = now.toISOString();
   const ok = await briefRow(deps, rs, r, at);
-  if (ok) appendLogbook(deps.db, 'did', `generated deep brief for "${r.title}" ($${rs.spentUsd.toFixed(2)})`, at, `opportunity:${id}`);
+  if (ok) appendLogbook(deps.db, 'did', `brief approfondi généré pour « ${r.title} » ($${rs.spentUsd.toFixed(2)})`, at, `opportunity:${id}`);
   return { ok, costUsd: rs.spentUsd, note: ok ? undefined : 'feasibility produced no usable JSON' };
 }
 

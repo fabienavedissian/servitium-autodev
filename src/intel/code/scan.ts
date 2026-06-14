@@ -212,7 +212,7 @@ export async function runCodeScan(deps: CodeScanDeps, repoArg?: string): Promise
     tx();
   }
 
-  appendLogbook(deps.db, 'veille', `analyse code de ${repo}: ${translatable.length} opportunites ($${rs.spentUsd.toFixed(2)})`, at);
+  appendLogbook(deps.db, 'veille', `analyse code de ${repo} : ${translatable.length} opportunités ($${rs.spentUsd.toFixed(2)})`, at);
   return { repo, opportunities: translatable.length, costUsd: rs.spentUsd };
 }
 
