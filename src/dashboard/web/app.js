@@ -28,6 +28,7 @@ function renderMarkdown(md) {
 }
 const usd = (n) => '$' + (Number(n) || 0).toFixed(n < 1 ? 4 : 2);
 const CHEV = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const seg = (items, attr, cur) => `<div class="seg" role="tablist">${items.map(([k, l]) => `<button data-${attr}="${k}" role="tab" aria-selected="${cur === k}" class="${cur === k ? 'active' : ''}">${l}</button>`).join('')}</div>`;
 
 async function api(path, opts) {
   const r = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
@@ -206,7 +207,7 @@ async function renderHome() {
   if (flag) needs.push(`<button class="needs-act" data-go="opportunities">${flag} opportunité${flag > 1 ? 's' : ''} phare${flag > 1 ? 's' : ''} à trier ${icon('arrowRight', 14)}</button>`);
   if (briefsReady) needs.push(`<button class="needs-act" data-go="validated">${briefsReady} brief${briefsReady > 1 ? 's' : ''} prêt${briefsReady > 1 ? 's' : ''} à coller ${icon('arrowRight', 14)}</button>`);
   const needsHtml = needs.length
-    ? `<div class="needs-me"><div class="needs-ico">${icon('sparkle', 18)}</div><div class="needs-body"><div class="needs-title">${needs.length} chose${needs.length > 1 ? 's' : ''} t'attendent</div><div class="needs-acts">${needs.join('')}</div></div></div>`
+    ? `<div class="needs-me"><div class="needs-ico">${icon('sparkle', 18)}</div><div class="needs-body"><div class="needs-title">${needs.length} chose${needs.length > 1 ? 's' : ''} t'attend${needs.length > 1 ? 'ent' : ''}</div><div class="needs-acts">${needs.join('')}</div></div></div>`
     : `<div class="needs-me calm"><div class="needs-ico">${icon('check', 18)}</div><div class="needs-body"><div class="needs-title">Rien ne t'attend.</div><div class="muted small">${running ? 'La veille tourne en ce moment.' : 'Le moteur surveille. La prochaine veille tournera ce matin.'}</div></div></div>`;
 
   const tile = (label, value, sub, extra = '') => `<div class="card kpi htile"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div>${extra}</div>`;
@@ -337,20 +338,22 @@ async function renderOpportunities() {
   const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
   const last = ov.lastRun;
   const lastTxt = last ? `dernière veille ${esc(String(last.run_date).split('#')[0])} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
-  const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
-  const statFilter = [['open', 'À traiter'], ['all', 'Tout']].map(([k, l]) => `<button data-stat="${k}" class="${OPP_STATUS === k ? 'active' : ''}">${l}</button>`).join('');
+  const statFilter = seg([['open', 'À traiter'], ['all', 'Tout']], 'stat', OPP_STATUS);
+  const srcFilter = seg([['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']], 'src', OPP_SOURCE);
   const lb = Object.entries(ov.learnedBias || {}).sort((a, b) => b[1] - a[1]);
-  const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix :</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? icon('up', 13) : icon('down', 13)} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
+  const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? icon('up', 13) : icon('down', 13)} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
       <span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>
     <div id="veille-banner">${veilleBanner(ov)}</div>
-    <div class="grid kpis" style="grid-template-columns:repeat(2,minmax(0,240px))">
-      <div class="card kpi"><div class="label">Opportunités ouvertes</div><div class="value">${ov.openOpportunities}</div><div class="sub">à trier</div></div>
-      <div class="card kpi"><div class="label">Phares</div><div class="value">${ov.flagshipOpen}</div><div class="sub">score 85+</div></div>
+    <div class="opps-toolbar">
+      <div class="stat-strip">
+        <div class="stat"><b>${ov.openOpportunities}</b><span>ouvertes</span></div>
+        <div class="stat ${ov.flagshipOpen ? 'hot' : ''}"><b>${ov.flagshipOpen}</b><span>phares</span></div>
+      </div>
+      <div class="tb-filters">${statFilter}${srcFilter}</div>
     </div>
     ${lbHtml}
-    <div class="filters">${statFilter}<span style="width:14px"></span>${srcFilter}</div>
     <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
   $('#view').querySelectorAll('[data-stat]').forEach((b) => b.addEventListener('click', () => { OPP_STATUS = b.dataset.stat; renderOpportunities(); }));
@@ -360,10 +363,10 @@ async function renderOpportunities() {
 // Dedicated menu: the opportunities the owner has pushed (validated -> brief + Max prompt). They live here forever.
 async function renderValidated() {
   const list = await api('/opportunities?status=validated&source=' + OPP_SOURCE);
-  const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
+  const srcFilter = seg([['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']], 'src', OPP_SOURCE);
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Mes briefs</h2><div class="muted">Les sujets que tu as poussés : brief concret + prompt Max prêts. Ils restent ici à vie pour ne pas les refaire.</div></div><span class="live-dot" title="en direct"></span></div>
-    <div class="filters">${srcFilter}</div>
+    <div class="tb-filters" style="margin-bottom:14px">${srcFilter}</div>
     <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucun sujet poussé pour l’instant. Dans « Opportunités », clique « Valider » : l’investigation se lance et le sujet atterrit ici avec son brief + prompt Max.</div>'}</div>`;
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderValidated(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
@@ -518,9 +521,9 @@ async function updateOpportunitiesLive() {
   }
   container.querySelectorAll('.opp').forEach((c) => { if (!seen.has(c.dataset.id)) c.remove(); });
   // KPIs + live veille banner (cheap, no layout disruption)
-  const k = $('#view').querySelectorAll('.kpi .value');
-  if (k[0]) k[0].textContent = ov.openOpportunities;
-  if (k[1]) k[1].textContent = ov.flagshipOpen;
+  const st = $('#view').querySelectorAll('.stat b');
+  if (st[0]) st[0].textContent = ov.openOpportunities;
+  if (st[1]) { st[1].textContent = ov.flagshipOpen; st[1].parentElement.classList.toggle('hot', !!ov.flagshipOpen); }
   const vb = $('#veille-banner'); if (vb) vb.innerHTML = veilleBanner(ov);
   setNavChrome(ov);
 }
@@ -534,20 +537,52 @@ function whyNot(o) {
   const weak = [...b.bars].sort((a, c) => a.value * a.weight - c.value * c.weight).slice(0, 2).map((x) => x.key);
   return `score ${o.score}/100 sous le seuil (65) — points faibles : ${weak.join(', ')}`;
 }
+const runLineHTML = (r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(String(r.run_date).split('#')[0])}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`;
+const sigHTML = (s) => `<div class="sig" data-sig="${s.id}"><div class="sig-title">${esc(s.title)}${s.source_url ? ` <a href="${esc(s.source_url)}" target="_blank" rel="noopener">${esc(s.source_domain || 'source')} ${EXT}</a>` : ''}</div>${s.summary ? `<div class="sig-sum">${esc(s.summary)}</div>` : ''}</div>`;
+const angleAccHTML = (a, sigs) => `<div class="acc" data-angle="${esc(a)}"><button class="acc-head">${CHEV}<span class="acc-title">${esc(ANGLE_FR[a] || a)}</span><span class="acc-count">${sigs.length}</span></button><div class="acc-body">${sigs.map(sigHTML).join('')}</div></div>`;
+const nrHTML = (o) => `<div class="nr" data-id="${o.id}"><div class="nr-score ${scoreClass(o.score)}">${o.score ?? '?'}</div><div class="nr-main"><div class="nr-title">${esc(o.title)} <span class="chip">${esc(o.status)}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span></div>${o.thesis ? `<div class="muted small">${esc(o.thesis)}</div>` : ''}<div class="nr-why">Pourquoi non retenu : ${whyNot(o)}</div></div></div>`;
+function wireAccHeads(root) {
+  root.querySelectorAll('.acc-head').forEach((hd) => { if (hd.dataset.wired) return; hd.dataset.wired = '1'; hd.addEventListener('click', () => hd.parentElement.classList.toggle('open')); });
+}
+function groupByAngle(signals) { const m = {}; (signals || []).forEach((s) => { (m[s.angle] = m[s.angle] || []).push(s); }); return m; }
 async function renderResearch() {
   const [d, ov] = await Promise.all([api('/sie/research'), api('/sie/overview')]);
-  const byAngle = {};
-  (d.signals || []).forEach((s) => { (byAngle[s.angle] = byAngle[s.angle] || []).push(s); });
+  const byAngle = groupByAngle(d.signals);
+  const nr = d.notRetained || [];
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct"></span></div>
+    <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>
     <div id="veille-banner">${veilleBanner(ov)}</div>
     <div class="section-title">Activité</div>
-    <div class="runs-feed">${(d.runs || []).length ? d.runs.map((r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(String(r.run_date).split('#')[0])}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
-    <div class="section-title">Recherches & lectures · ${(d.signals || []).length} signaux</div>
-    <div class="signals">${Object.keys(byAngle).length ? Object.entries(byAngle).map(([a, sigs]) => `<div class="acc"><button class="acc-head">${CHEV}<span class="acc-title">${esc(ANGLE_FR[a] || a)}</span><span class="acc-count">${sigs.length}</span></button><div class="acc-body">${sigs.map((s) => `<div class="sig"><div class="sig-title">${esc(s.title)}${s.source_url ? ` <a href="${esc(s.source_url)}" target="_blank" rel="noopener">${esc(s.source_domain || 'source')} ${EXT}</a>` : ''}</div>${s.summary ? `<div class="sig-sum">${esc(s.summary)}</div>` : ''}</div>`).join('')}</div></div>`).join('') : '<div class="empty">Aucun signal pour l\'instant — lance une veille.</div>'}</div>
-    <div class="section-title">Considéré mais non retenu · ${(d.notRetained || []).length}</div>
-    <div class="acc"><button class="acc-head">${CHEV}<span class="acc-title">Opportunités écartées</span><span class="acc-count">${(d.notRetained || []).length}</span></button><div class="acc-body not-retained">${(d.notRetained || []).length ? d.notRetained.map((o) => `<div class="nr"><div class="nr-score ${scoreClass(o.score)}">${o.score ?? '?'}</div><div class="nr-main"><div class="nr-title">${esc(o.title)} <span class="chip">${esc(o.status)}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span></div>${o.thesis ? `<div class="muted small">${esc(o.thesis)}</div>` : ''}<div class="nr-why">Pourquoi non retenu : ${whyNot(o)}</div></div></div>`).join('') : '<div class="muted" style="padding:10px">Rien d\'écarté pour l\'instant.</div>'}</div></div>`;
-  $('#view').querySelectorAll('.acc-head').forEach((h) => h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
+    <div class="runs-feed">${(d.runs || []).length ? d.runs.map(runLineHTML).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
+    <div class="section-title">Recherches & lectures <span data-sig-count class="st-c">· ${(d.signals || []).length} signaux</span></div>
+    <div class="signals">${Object.keys(byAngle).length ? Object.entries(byAngle).map(([a, sigs]) => angleAccHTML(a, sigs)).join('') : '<div class="empty">Aucun signal pour l\'instant — lance une veille.</div>'}</div>
+    <div class="section-title">Considéré mais non retenu <span data-nr-count class="st-c">· ${nr.length}</span></div>
+    <div class="acc" data-nr-acc><button class="acc-head">${CHEV}<span class="acc-title">Opportunités écartées</span><span class="acc-count">${nr.length}</span></button><div class="acc-body not-retained">${nr.length ? nr.map(nrHTML).join('') : '<div class="muted" style="padding:10px">Rien d\'écarté pour l\'instant.</div>'}</div></div>`;
+  wireAccHeads($('#view'));
+}
+// Surgical live update: never rebuilds -> open accordions stay open, no flicker, no scroll jump.
+async function updateResearchLive() {
+  const sigWrap = $('.signals');
+  if (!sigWrap) return route();
+  const [d, ov] = await Promise.all([api('/sie/research'), api('/sie/overview')]);
+  const vb = $('#veille-banner'); if (vb) vb.innerHTML = veilleBanner(ov);
+  const rf = $('.runs-feed'); if (rf) rf.innerHTML = (d.runs || []).length ? d.runs.map(runLineHTML).join('') : '<div class="muted">Aucun run encore.</div>';
+  const byAngle = groupByAngle(d.signals);
+  const empt = sigWrap.querySelector('.empty'); if (empt && Object.keys(byAngle).length) empt.remove();
+  for (const [a, sigs] of Object.entries(byAngle)) {
+    let acc = sigWrap.querySelector(`.acc[data-angle="${a}"]`);
+    if (!acc) { acc = h(angleAccHTML(a, sigs)); sigWrap.appendChild(acc); wireAccHeads(acc); continue; }
+    const cnt = acc.querySelector('.acc-count'); if (cnt) cnt.textContent = sigs.length;
+    const body = acc.querySelector('.acc-body');
+    for (const s of sigs) if (body && !body.querySelector(`[data-sig="${s.id}"]`)) body.appendChild(h(sigHTML(s)));
+  }
+  const scn = $('[data-sig-count]'); if (scn) scn.textContent = `· ${(d.signals || []).length} signaux`;
+  const nr = d.notRetained || [];
+  const nrBody = $('[data-nr-acc] .acc-body');
+  if (nrBody && nr.length) { const m = nrBody.querySelector('.muted'); if (m) m.remove(); for (const o of nr) if (!nrBody.querySelector(`[data-id="${o.id}"]`)) nrBody.appendChild(h(nrHTML(o))); }
+  const nc = $('[data-nr-count]'); if (nc) nc.textContent = `· ${nr.length}`;
+  const nca = $('[data-nr-acc] .acc-count'); if (nca) nca.textContent = nr.length;
+  setNavChrome(ov);
 }
 
 /* ---------- Comptes-rendus (recherche à la demande) ---------- */
@@ -565,19 +600,41 @@ async function renderReports() {
   });
   $('#view').querySelectorAll('.report').forEach(wireReport);
 }
-function reportCard(r) {
-  let body = '';
+const reportSig = (r) => String(r.state || '');
+function reportBodyHTML(r) {
   if (r.state === 'running') {
     const pct = Math.max(2, Math.min(100, r.progress || 0));
-    let eta = '';
-    if (r.started_at && pct > 4 && pct < 100) { const el = (Date.now() - Date.parse(r.started_at)) / 1000; const rem = Math.round((el * (100 - pct)) / pct); if (rem > 0 && rem < 3600) eta = ` · ~${fmtDur(rem)} restantes`; }
-    body = `<div class="brief-running"><div class="brief-prog"><div class="brief-prog-head"><span class="trace">${esc(r.detail || 'Recherche en cours…')}</span><span class="brief-pct">${pct}%${eta}</span></div><div class="bar live"><span style="width:${pct}%"></span></div></div></div>`;
-  } else if (r.state === 'failed') {
-    body = `<div class="muted small">${esc(r.detail || 'échec')}</div><button class="btn ghost" data-rerun>Relancer</button>`;
-  } else {
-    body = `<button class="btn ok" data-view-report>Voir le compte-rendu</button>`;
+    return `<div class="brief-running"><div class="brief-prog"><div class="brief-prog-head"><span class="trace">${esc(r.detail || 'Recherche en cours…')}</span><span class="brief-pct">${pct}%${briefEta(r.started_at, pct)}</span></div><div class="bar live"><span style="width:${pct}%"></span></div></div></div>`;
   }
-  return `<div class="report" data-id="${r.id}"><div class="report-head"><div class="report-q">${esc(r.question)}</div><span class="muted small">${usd(r.cost_usd)}</span></div><div class="report-body">${body}</div><div class="report-zone"></div></div>`;
+  if (r.state === 'failed') return `<div class="muted small">${esc(r.detail || 'échec')}</div><button class="btn ghost" data-rerun>Relancer</button>`;
+  return `<button class="btn ok" data-view-report>Voir le compte-rendu</button>`;
+}
+function reportCard(r) {
+  return `<div class="report" data-id="${r.id}"><div class="report-head"><div class="report-q">${esc(r.question)}</div><span class="muted small" data-cost>${usd(r.cost_usd)}</span></div><div class="report-body" data-sig="${reportSig(r)}">${reportBodyHTML(r)}</div><div class="report-zone"></div></div>`;
+}
+function patchReportCard(card, r) {
+  const cost = card.querySelector('[data-cost]'); if (cost) cost.textContent = usd(r.cost_usd);
+  const body = card.querySelector('.report-body');
+  if (!body) return;
+  const sig = reportSig(r);
+  if (body.dataset.sig !== sig) { body.innerHTML = reportBodyHTML(r); body.dataset.sig = sig; wireReport(card); }
+  else if (r.state === 'running') {
+    const pct = Math.max(2, Math.min(100, r.progress || 0));
+    const span = body.querySelector('.bar > span'); if (span) span.style.width = pct + '%';
+    const pctEl = body.querySelector('.brief-pct'); if (pctEl) pctEl.textContent = `${pct}%${briefEta(r.started_at, pct)}`;
+    const trace = body.querySelector('.trace'); if (trace) trace.textContent = r.detail || 'Recherche en cours…';
+  }
+}
+async function updateReportsLive() {
+  const wrap = $('#reports');
+  if (!wrap) return route();
+  const list = await api('/reports');
+  const empt = wrap.querySelector('.empty'); if (empt && list.length) empt.remove();
+  for (const r of list) {
+    const card = wrap.querySelector(`.report[data-id="${r.id}"]`);
+    if (card) patchReportCard(card, r);
+    else { const n = h(reportCard(r)); wireReport(n); wrap.prepend(n); }
+  }
 }
 function wireReport(card) {
   const id = card.dataset.id;
@@ -728,8 +785,8 @@ function applyChanged(msg) {
   if (VIEW === 'home') updateHomeLive();
   else if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities' || VIEW === 'validated') updateOpportunitiesLive();
-  else if (VIEW === 'research') renderResearch();
-  else if (VIEW === 'reports') renderReports();
+  else if (VIEW === 'research') updateResearchLive();
+  else if (VIEW === 'reports') updateReportsLive();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'runs') renderRuns();
 }
