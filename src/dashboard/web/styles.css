@@ -410,7 +410,9 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .bd-inner { min-height: 0; overflow: hidden; background: var(--surface-1); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 
 /* Two-tier sidebar */
-.side { background: var(--surface-1); border-right: 1px solid var(--line); padding: 16px 14px; display: flex; flex-direction: column; gap: 2px; }
+.side { background: var(--surface-1); border-right: 1px solid var(--line); padding: 16px 14px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.side::-webkit-scrollbar { width: 8px; }
+.side::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; }
 .brand { padding: 4px 8px 14px; }
 .brand .logo { box-shadow: var(--shadow-2); }
 .rail-cta { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 11px 14px; margin: 2px 0 4px; border-radius: var(--r-sm); font: 600 var(--fs-sm) var(--font-ui); color: #07101f; border: none; background: linear-gradient(180deg, var(--accent), var(--accent-press)); box-shadow: var(--shadow-2); transition: filter var(--dur-fast), transform var(--dur-fast); }
