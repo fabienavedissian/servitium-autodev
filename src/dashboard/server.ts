@@ -9,7 +9,7 @@ import { createLogger } from '../log';
 import { spawn } from 'child_process';
 import { tasksByState, costSince, recentRuns, runDetail, addComment } from './queries';
 import { listProposals, decideProposal, proposalCounts, type ProposalStatus } from './proposals';
-import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, signalsFeed, notRetained, listReports, reportDetail, type DecideAction } from './opportunities';
+import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, signalsFeed, notRetained, listReports, reportDetail, activeJobs, type DecideAction } from './opportunities';
 
 const cfg = loadConfig();
 const log = createLogger(cfg);
@@ -146,6 +146,7 @@ const server = http.createServer(async (req, res) => {
     // ── Intelligence Engine (SIE) ──────────────────────────────────────────
     if (p === '/api/sie/overview') return send(res, 200, sieOverview(db, startMonth));
     if (p === '/api/sie/runs') return send(res, 200, recentSenseRuns(db));
+    if (p === '/api/sie/activity') return send(res, 200, activeJobs(db));
     if (p === '/api/sie/research') return send(res, 200, { runs: recentSenseRuns(db, 30), signals: signalsFeed(db), notRetained: notRetained(db) });
     if (p === '/api/reports' && req.method === 'GET') return send(res, 200, listReports(db));
     if (p === '/api/reports' && req.method === 'POST') {
@@ -310,9 +311,11 @@ setInterval(() => {
       `SELECT (SELECT COALESCE(MAX(id),0) FROM opportunity) AS mo,
               (SELECT COALESCE(MAX(updated_at),'') FROM opportunity) AS mou,
               (SELECT COALESCE(MAX(id),0) FROM sie_run) AS mr,
-              (SELECT status||'/'||COALESCE(stage,'')||'/'||COALESCE(progress,0) FROM sie_run ORDER BY id DESC LIMIT 1) AS rs,
+              (SELECT COALESCE(GROUP_CONCAT(id||':'||COALESCE(stage,'')||':'||COALESCE(progress,0)),'') FROM sie_run WHERE status='running') AS rs,
+              (SELECT COALESCE(GROUP_CONCAT(id||':'||COALESCE(brief_progress,0)||':'||COALESCE(detail,'')),'') FROM opportunity WHERE brief_state='running') AS bp,
               (SELECT COALESCE(MAX(id),0) FROM signal) AS ms,
               (SELECT COALESCE(MAX(id),0)||'/'||COALESCE(MAX(updated_at),'') FROM report) AS mrp,
+              (SELECT COALESCE(GROUP_CONCAT(id||':'||COALESCE(progress,0)||':'||COALESCE(detail,'')),'') FROM report WHERE state='running') AS rprog,
               (SELECT COALESCE(MAX(id),0) FROM logbook) AS ml`,
     )
     .get();

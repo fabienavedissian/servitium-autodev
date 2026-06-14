@@ -42,6 +42,7 @@ function migrate(db: DB): void {
   // Live veille progress, shown in the dashboard while a run is in flight.
   ensureColumn(db, 'sie_run', 'stage', 'TEXT');
   ensureColumn(db, 'sie_run', 'progress', 'INTEGER');
+  ensureColumn(db, 'sie_run', 'kind', 'TEXT'); // 'veille' (web) | 'code' — distinguishes the two run types
   // Research reports (comptes-rendus): an owner question -> a deep researched informational report
   // (e.g. "what is Oxide, which games, competitor or not"), distinct from actionable opportunities.
   db.exec(`CREATE TABLE IF NOT EXISTS report (

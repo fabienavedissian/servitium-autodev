@@ -299,9 +299,11 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .brief-doc a { color: var(--accent); }
 
 .brief-buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.steer-box { margin-top: 9px; }
-.steer-box input { width: 100%; padding: 8px 11px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; color: var(--txt); outline: none; font-size: 12.5px; }
-.steer-box input:focus { border-color: var(--accent); }
+.steer-box { margin-top: 12px; }
+.steer-label { display: block; font-size: var(--fs-xs); color: var(--txt-dim); margin-bottom: 6px; font-weight: 500; }
+.steer-box textarea { width: 100%; min-height: 76px; resize: vertical; padding: 11px 13px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font: inherit; font-size: var(--fs-sm); line-height: 1.55; }
+.steer-box textarea::placeholder { color: var(--txt-mute); }
+.steer-box textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* Veille (transparency) view */
 .runs-feed { display: flex; flex-direction: column; gap: 6px; }
@@ -462,6 +464,20 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .learned { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 14px; box-shadow: var(--hairline-top); margin: 0 0 14px; }
 .lb { gap: 4px; }
 .st-c { color: var(--txt-dim); font-weight: 400; font-size: var(--fs-sm); margin-left: -6px; }
+
+/* Global activity dock — always-visible running jobs (fixed, top-right) */
+#activity-dock { position: fixed; top: 16px; right: 16px; width: 312px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 10px; z-index: 55; pointer-events: none; }
+.job-card { pointer-events: auto; background: var(--surface-4); border: 1px solid var(--line-strong); border-left-width: 3px; border-radius: var(--r-md); padding: 11px 13px; box-shadow: var(--shadow-3); animation: jobIn var(--dur-base) var(--ease-out); }
+@keyframes jobIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.job-card.t-veille { border-left-color: var(--accent); }
+.job-card.t-code { border-left-color: var(--accent-2); }
+.job-card.t-brief { border-left-color: var(--ok); }
+.job-card.t-report { border-left-color: var(--info); }
+.job-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.job-spin { width: 13px; height: 13px; border-radius: 99px; border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+.job-label { flex: 1; min-width: 0; font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-pct { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; font-size: var(--fs-sm); flex: none; }
+.job-stage { color: var(--txt-dim); font-size: var(--fs-xs); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ic { vertical-align: -.18em; }
 a .ic { vertical-align: -.12em; }
 .nav-slot { display: flex; align-items: center; }

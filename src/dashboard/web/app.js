@@ -127,6 +127,7 @@ async function renderShell() {
         <a class="logout-link" data-logout tabindex="0">${icon('logout')} Déconnexion</a>
       </aside>
       <main class="main"><a href="#view" class="skip">Aller au contenu</a><div id="view"></div></main>
+      <div id="activity-dock" aria-live="polite"></div>
     </div>`);
   const go = (v) => { VIEW = v; OPEN_RUN = null; route(); };
   shell.querySelectorAll('[data-v]').forEach((a) => {
@@ -137,8 +138,33 @@ async function renderShell() {
   shell.querySelector('[data-scan-code]').addEventListener('click', async () => { const r = await api('/sie/code-scan-now', { method: 'POST', body: '{}' }); toast(r && r.error ? r.error : 'Analyse du code lancée — résultats en direct.', r && r.error ? 'error' : 'success'); });
   shell.querySelector('[data-logout]').addEventListener('click', async () => { await fetch('/api/logout'); renderLogin(); });
   $('#app').appendChild(shell);
-  route(); connectWs();
+  route(); connectWs(); updateActivityDock();
   try { setNavChrome(await api('/sie/overview')); } catch {}
+}
+/* ---------- Global activity dock (always-visible live jobs) ---------- */
+function jobCardHTML(j) {
+  const pct = Math.max(2, Math.min(100, j.progress || 0));
+  return `<div class="job-card t-${j.type}" data-job="${j.type}-${j.id}"><div class="job-head"><span class="job-spin"></span><span class="job-label">${esc(j.label)}</span><span class="job-pct">${pct}%</span></div><div class="job-stage">${esc(j.stage || '')}${briefEta(j.startedAt, pct)}</div><div class="bar live"><span style="width:${pct}%"></span></div></div>`;
+}
+function patchJobCard(card, j) {
+  const pct = Math.max(2, Math.min(100, j.progress || 0));
+  const p = card.querySelector('.job-pct'); if (p) p.textContent = pct + '%';
+  const sp = card.querySelector('.bar > span'); if (sp) sp.style.width = pct + '%';
+  const st = card.querySelector('.job-stage'); if (st) st.textContent = (j.stage || '') + briefEta(j.startedAt, pct);
+  const lb = card.querySelector('.job-label'); if (lb && lb.textContent !== j.label) lb.textContent = j.label;
+}
+async function updateActivityDock() {
+  const dock = $('#activity-dock'); if (!dock) return;
+  let jobs;
+  try { jobs = await api('/sie/activity'); } catch { return; }
+  if (!Array.isArray(jobs)) return;
+  const seen = new Set();
+  for (const j of jobs) {
+    const key = `${j.type}-${j.id}`; seen.add(key);
+    const card = dock.querySelector(`[data-job="${key}"]`);
+    if (card) patchJobCard(card, j); else dock.appendChild(h(jobCardHTML(j)));
+  }
+  dock.querySelectorAll('.job-card').forEach((c) => { if (!seen.has(c.dataset.job)) c.remove(); });
 }
 function setNavChrome(ov) {
   if (!ov) return;
@@ -214,9 +240,7 @@ async function renderHome() {
 
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Accueil</h2><div class="muted">${last ? `Dernière veille ${esc(String(last.run_date).split('#')[0])} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'Aucune veille pour l’instant. Lance la première depuis le bouton à gauche.'}</div></div>
-      <span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>
-    <div id="veille-banner">${veilleBanner(ov)}</div>
-    ${needsHtml}
+      <span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>    ${needsHtml}
     <div class="home-hero">
       ${tile('Opportunités ouvertes', ov.openOpportunities, `${flag} phares`, sparkline(sigSeries, 'accent'))}
       ${tile('Signaux captés', totalSignals, `sur ${runs.length} veille${runs.length > 1 ? 's' : ''}`, sparkline(sigSeries))}
@@ -344,9 +368,7 @@ async function renderOpportunities() {
   const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? icon('up', 13) : icon('down', 13)} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
   $('#view').innerHTML = `
     <div class="topbar"><div><h2>Opportunités</h2><div class="muted">${lastTxt}</div></div>
-      <span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>
-    <div id="veille-banner">${veilleBanner(ov)}</div>
-    <div class="opps-toolbar">
+      <span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>    <div class="opps-toolbar">
       <div class="stat-strip">
         <div class="stat"><b>${ov.openOpportunities}</b><span>ouvertes</span></div>
         <div class="stat ${ov.flagshipOpen ? 'hot' : ''}"><b>${ov.flagshipOpen}</b><span>phares</span></div>
@@ -396,7 +418,7 @@ function briefActionsHTML(o) {
     ? `<span class="pq ${pqClass(o.promptQuality)}" title="Fiabilité du prompt selon la profondeur d'investigation. Les inconnues se lèvent avec le prompt « approfondir » sur Max.">Qualité du prompt : ${o.promptQuality}%${o.unknowns_count ? ` · ${o.unknowns_count} inconnue${o.unknowns_count > 1 ? 's' : ''} à lever` : ''}</span>`
     : '';
   return `<div class="brief-buttons"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button><button class="btn ghost" data-brief title="relance l'enquête : lève les inconnues restantes + ta consigne ci-dessous — le % monte">Approfondir</button>${pq}</div>
-    <div class="steer-box"><input type="text" data-steer placeholder="Optionnel : oriente la prochaine passe (ex : vérifie que chaque commande RCON marche vraiment)"></div>`;
+    <div class="steer-box"><label class="steer-label">Orienter la prochaine passe (optionnel)</label><textarea data-steer rows="3" placeholder="Ex : vérifie que chaque commande RCON marche vraiment, ajoute les commandes admin du mode hardcore, creuse l'intégration avec Oxide..."></textarea></div>`;
 }
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };
@@ -550,9 +572,7 @@ async function renderResearch() {
   const byAngle = groupByAngle(d.signals);
   const nr = d.notRetained || [];
   $('#view').innerHTML = `
-    <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>
-    <div id="veille-banner">${veilleBanner(ov)}</div>
-    <div class="section-title">Activité</div>
+    <div class="topbar"><div><h2>Veille — tout ce que le moteur a vu</h2><div class="muted">Ses recherches, ses lectures, et ce qui n'a pas été retenu (avec la raison).</div></div><span class="live-dot" title="en direct" role="status" aria-label="Flux en direct actif"></span></div>    <div class="section-title">Activité</div>
     <div class="runs-feed">${(d.runs || []).length ? d.runs.map(runLineHTML).join('') : '<div class="muted">Aucun run encore.</div>'}</div>
     <div class="section-title">Recherches & lectures <span data-sig-count class="st-c">· ${(d.signals || []).length} signaux</span></div>
     <div class="signals">${Object.keys(byAngle).length ? Object.entries(byAngle).map(([a, sigs]) => angleAccHTML(a, sigs)).join('') : '<div class="empty">Aucun signal pour l\'instant — lance une veille.</div>'}</div>
@@ -780,6 +800,7 @@ function connectWs() {
 }
 function applyChanged(msg) {
   if (msg.type !== 'changed') return;
+  updateActivityDock(); // global dock updates regardless of view or focus
   if (document.activeElement && ['TEXTAREA', 'INPUT'].includes(document.activeElement.tagName)) return; // don't clobber typing
   if (OPEN_RUN) return updateRunDetailLive();
   if (VIEW === 'home') updateHomeLive();

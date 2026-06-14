@@ -112,7 +112,7 @@ export function decideOpportunity(db: DB, id: number, action: DecideAction, comm
 }
 
 export function sieOverview(db: DB, monthStartIso: string): Record<string, unknown> {
-  const last = db.prepare('SELECT run_date, status, stage, progress, signals_new, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run ORDER BY id DESC LIMIT 1').get() ?? null;
+  const last = db.prepare("SELECT run_date, status, stage, progress, signals_new, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run WHERE kind IS NULL OR kind='veille' ORDER BY id DESC LIMIT 1").get() ?? null;
   const intelMonth = (db.prepare("SELECT COALESCE(SUM(cost_usd),0) AS s FROM spend_ledger WHERE scope='intel' AND created_at >= ?").get(monthStartIso) as { s: number }).s;
   const counts = db.prepare("SELECT COUNT(*) AS open FROM opportunity WHERE status IN ('proposed','greenlit','accepted')").get() as { open: number };
   const flagship = db.prepare("SELECT COUNT(*) AS n FROM opportunity WHERE flagship=1 AND status IN ('proposed','greenlit','accepted')").get() as { n: number };
@@ -140,7 +140,19 @@ export function addLogbookNote(db: DB, kind: string, summary: string, at: string
 }
 
 export function recentSenseRuns(db: DB, limit = 20): Record<string, unknown>[] {
-  return db.prepare('SELECT id, run_date, status, signals_new, queries_run, hits_fetched, angles_run, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run ORDER BY id DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+  return db.prepare("SELECT id, run_date, status, signals_new, queries_run, hits_fetched, angles_run, opportunities, briefs, cost_usd, started_at, ended_at FROM sie_run WHERE kind IS NULL OR kind='veille' ORDER BY id DESC LIMIT ?").all(limit) as Record<string, unknown>[];
+}
+
+// Every currently-running job (veille, code analysis, brief, report) for the global activity dock.
+export function activeJobs(db: DB): Record<string, unknown>[] {
+  const jobs: Record<string, unknown>[] = [];
+  const runs = db.prepare("SELECT id, kind, stage, progress, started_at FROM sie_run WHERE status='running' ORDER BY id DESC").all() as { id: number; kind: string | null; stage: string | null; progress: number | null; started_at: string }[];
+  for (const r of runs) jobs.push({ id: r.id, type: r.kind === 'code' ? 'code' : 'veille', label: r.kind === 'code' ? 'Analyse du code' : 'Veille', stage: r.stage || 'démarrage…', progress: r.progress || 0, startedAt: r.started_at });
+  const briefs = db.prepare("SELECT id, COALESCE(title_fr, title) AS title, detail, brief_progress, brief_started_at FROM opportunity WHERE brief_state='running'").all() as { id: number; title: string; detail: string | null; brief_progress: number | null; brief_started_at: string | null }[];
+  for (const b of briefs) jobs.push({ id: b.id, type: 'brief', label: `Brief : ${b.title || ''}`, stage: b.detail || 'investigation…', progress: b.brief_progress || 0, startedAt: b.brief_started_at });
+  const reps = db.prepare("SELECT id, detail, progress, started_at FROM report WHERE state='running'").all() as { id: number; detail: string | null; progress: number | null; started_at: string }[];
+  for (const r of reps) jobs.push({ id: r.id, type: 'report', label: 'Compte-rendu', stage: r.detail || 'recherche…', progress: r.progress || 0, startedAt: r.started_at });
+  return jobs;
 }
 
 // Everything the veille actually SAW: the raw signals it harvested (research reports), so the owner

@@ -19,10 +19,10 @@ export interface SieRun {
 }
 
 // Once-per-UTC-day guard: insert a 'running' row; returns its id, or null if today already ran.
-export function startRun(db: DB, runDate: string, at: string): number | null {
+export function startRun(db: DB, runDate: string, at: string, kind = 'veille'): number | null {
   const res = db
-    .prepare(`INSERT OR IGNORE INTO sie_run (run_date, status, started_at) VALUES (?, 'running', ?)`)
-    .run(runDate, at);
+    .prepare(`INSERT OR IGNORE INTO sie_run (run_date, status, started_at, kind) VALUES (?, 'running', ?, ?)`)
+    .run(runDate, at, kind);
   if (res.changes === 0) return null;
   return Number(res.lastInsertRowid);
 }

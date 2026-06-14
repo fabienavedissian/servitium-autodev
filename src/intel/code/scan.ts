@@ -40,6 +40,10 @@ const SCAN_ROOT = process.env.AUTODEV_CODESCAN_DIR ?? '/opt/autodev/codescan';
 // Rotating repo list: one repo per daily code scan -> full coverage over a cycle, bounded cost.
 export const CODE_REPOS = ['servitium-api', 'servitium-center', 'servitium-portal', 'servitium-ui', 'servitium-electron-gui', 'servitium-autodev'];
 
+// Live-progress mapping for the code scan (shown in the global activity dock).
+const CODE_STAGE_FR: Record<string, string> = { CLONE: 'Clonage du dépôt', DEPS: 'Dépendances', AUDIT: 'Audit du code', SCORE: 'Notation', TRANSLATE: 'Traduction' };
+const CODE_PROGRESS: Record<string, number> = { CLONE: 8, DEPS: 18, AUDIT: 42, SCORE: 70, TRANSLATE: 90 };
+
 export function repoForDay(now: Date, repos = CODE_REPOS): string {
   const dayIndex = Math.floor(now.getTime() / 86_400_000);
   return repos[dayIndex % repos.length];
@@ -128,8 +132,14 @@ export async function runCodeScan(deps: CodeScanDeps, repoArg?: string): Promise
   const at = now.toISOString();
   const repo = repoArg ?? repoForDay(now);
   const rs = { spentUsd: 0 };
-  const stage = (s: string, d = '') => deps.onStage?.(s, d);
+  const runId = repos.startRun(deps.db, `code:${at}`, at, 'code');
+  const stage = (s: string, d = '') => {
+    deps.onStage?.(s, d);
+    if (runId) deps.db.prepare('UPDATE sie_run SET stage=?, progress=? WHERE id=?').run(d ? `${CODE_STAGE_FR[s] || s} — ${d}` : (CODE_STAGE_FR[s] || s), CODE_PROGRESS[s] ?? 0, runId);
+  };
   setActiveDossier(composeGrounding(deps.db));
+  let codeOppsCount = 0;
+  try {
 
   const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
   if (cap.paused) return { repo, opportunities: 0, costUsd: 0, note: cap.reason };
@@ -213,7 +223,11 @@ export async function runCodeScan(deps: CodeScanDeps, repoArg?: string): Promise
   }
 
   appendLogbook(deps.db, 'veille', `analyse code de ${repo} : ${translatable.length} opportunités ($${rs.spentUsd.toFixed(2)})`, at);
+  codeOppsCount = translatable.length;
   return { repo, opportunities: translatable.length, costUsd: rs.spentUsd };
+  } finally {
+    if (runId) repos.finishRun(deps.db, runId, 'done', { cost_usd: rs.spentUsd, opportunities: codeOppsCount }, new Date().toISOString());
+  }
 }
 
 // The audit agent gets the repo as cwd + read-only tools to inspect the real code.
