@@ -265,3 +265,8 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .brief-doc code { background: #0e1320; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9be6c0; white-space: nowrap; }
 .brief-doc strong { color: var(--txt); font-weight: 650; }
 .brief-doc a { color: var(--accent); }
+
+.brief-buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.steer-box { margin-top: 9px; }
+.steer-box input { width: 100%; padding: 8px 11px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; color: var(--txt); outline: none; font-size: 12.5px; }
+.steer-box input:focus { border-color: var(--accent); }

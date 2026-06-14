@@ -175,7 +175,9 @@ const server = http.createServer(async (req, res) => {
       const exists = db.prepare('SELECT 1 FROM opportunity WHERE id=?').get(id);
       if (!exists) return send(res, 404, { error: 'not found' });
       if (intelCapped) return send(res, 429, { error: capMsg });
-      db.prepare("UPDATE opportunity SET brief_state='running', brief_progress=0, brief_started_at=NULL, detail='Lancement de l investigation...', status=CASE WHEN status='proposed' THEN 'greenlit' ELSE status END, decided_at=COALESCE(decided_at, ?), updated_at=? WHERE id=?").run(now.toISOString(), now.toISOString(), id);
+      const briefBody = await readBody(req);
+      const steer = String(briefBody.steer ?? '').slice(0, 800);
+      db.prepare("UPDATE opportunity SET brief_state='running', brief_progress=0, brief_started_at=NULL, brief_steer=?, detail='Lancement de l investigation...', status=CASE WHEN status='proposed' THEN 'greenlit' ELSE status END, decided_at=COALESCE(decided_at, ?), updated_at=? WHERE id=?").run(steer || null, now.toISOString(), now.toISOString(), id);
       const child = spawn(process.execPath, ['--max-old-space-size=2048', 'dist/scripts/brief-opportunity.js', String(id)], {
         cwd: process.cwd(),
         detached: true,

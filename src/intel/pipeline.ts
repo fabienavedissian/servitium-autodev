@@ -11,8 +11,16 @@ import { scoreOpportunity, tierForScore, DEFAULT_WEIGHTS } from './score/rubric'
 import * as repos from './repos';
 import { harvestPrompt, extractPrompt, ideatePrompt, scorerPrompt, feasibilityPrompt, translateOppsPrompt, translateFeasibilityPrompt } from './prompts';
 import { renderBriefMd, renderMaxPrompt, renderDeeperPrompt, type Feasibility } from './brief/maxPromptTemplate';
-import { setActiveDossier } from './dossier';
+import { setActiveDossier, SERVITIUM_DOSSIER } from './dossier';
 import { kvGet } from './learning';
+
+// Base dossier (auto-refreshed) + the owner's authoritative strategic corrections (never overwritten
+// by the refresh). Both feed every agent prompt.
+export function composeGrounding(db: import('../db/db').DB): string {
+  const base = kvGet(db, 'dossier');
+  const oc = kvGet(db, 'owner_context');
+  return `${base && base.length > 100 ? base : SERVITIUM_DOSSIER}${oc ? `\n\nOWNER STRATEGIC CORRECTIONS (authoritative - always respect over anything above):\n${oc}` : ''}`;
+}
 
 export interface VeilleDeps {
   db: DB;
@@ -94,7 +102,7 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
   const rs: RunState = { spentUsd: 0 };
   const log = deps.log ?? (() => {});
   const stage = (s: string, d = '') => deps.onStage?.(s, d);
-  setActiveDossier(kvGet(deps.db, 'dossier')); // use the auto-refreshed context if present
+  setActiveDossier(composeGrounding(deps.db)); // auto-refreshed context + owner strategic corrections
 
   // Intel monthly/daily sub-cap kill-switch (the ~50 EUR guarantee).
   const cap = deps.ledger.subStatus('intel', { dailyUsd: deps.cfg.SIE_DAILY_CAP_USD, monthlyUsd: deps.cfg.SIE_MONTHLY_CAP_USD }, now);
@@ -240,6 +248,7 @@ interface BriefRow {
   why_now_fr?: string;
   sources_json: string;
   feasibility_json?: string;
+  brief_steer?: string;
   score: number;
 }
 
@@ -292,7 +301,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
       return undefined;
     }
   })();
-  const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), prior), {
+  const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), prior, r.brief_steer), {
     allowedTools: ['WebSearch', 'WebFetch'],
     maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
     onMessage: (msg) => {
@@ -324,7 +333,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
   const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
-    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, feasibility_json=?, recommendation=?, unknowns_count=?, brief_state='done', brief_progress=100, detail=NULL, brief_started_at=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
+    .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, feasibility_json=?, recommendation=?, unknowns_count=?, brief_state='done', brief_progress=100, detail=NULL, brief_started_at=NULL, brief_steer=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
     .run(briefMd, maxPrompt, deeperPrompt, JSON.stringify(f), f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
   return true;
 }
@@ -354,7 +363,7 @@ export async function briefOpportunityById(deps: VeilleDeps, id: number): Promis
     deps.db.prepare("UPDATE opportunity SET brief_state='failed', detail=? WHERE id=?").run(cap.reason ?? 'plafond atteint', id);
     return { ok: false, costUsd: 0, note: cap.reason };
   }
-  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, feasibility_json, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
+  const r = deps.db.prepare('SELECT id, title, thesis, why_now, fit, title_fr, why_now_fr, sources_json, feasibility_json, brief_steer, score FROM opportunity WHERE id=?').get(id) as BriefRow | undefined;
   if (!r) return { ok: false, costUsd: 0, note: 'not found' };
   const rs: RunState = { spentUsd: 0 };
   const at = now.toISOString();

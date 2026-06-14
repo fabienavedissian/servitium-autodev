@@ -224,7 +224,8 @@ function briefActionsHTML(o) {
   const pq = o.promptQuality != null
     ? `<span class="pq ${pqClass(o.promptQuality)}" title="Fiabilité du prompt selon la profondeur d'investigation. Les inconnues se lèvent avec le prompt « approfondir » sur Max.">Qualité du prompt : ${o.promptQuality}%${o.unknowns_count ? ` · ${o.unknowns_count} inconnue${o.unknowns_count > 1 ? 's' : ''} à lever` : ''}</span>`
     : '';
-  return `<button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button><button class="btn ghost" data-brief title="relance l'enquête en ciblant les inconnues restantes — le % de qualité monte">Approfondir</button>${pq}`;
+  return `<div class="brief-buttons"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button><button class="btn ghost" data-brief title="relance l'enquête : lève les inconnues restantes + ta consigne ci-dessous — le % monte">Approfondir</button>${pq}</div>
+    <div class="steer-box"><input type="text" data-steer placeholder="Optionnel : oriente la prochaine passe (ex : vérifie que chaque commande RCON marche vraiment)"></div>`;
 }
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };
@@ -255,15 +256,15 @@ function oppCard(o) {
       <div class="comment-box small"><textarea data-comment placeholder="Raison (ex : « on a déjà ça, la map gère déjà les 2 maps »). Écris-la puis « Pas intéressé » : le moteur ne te le reproposera plus."></textarea><button class="btn ghost" data-send-comment>Envoyer</button></div>
     </div></div>`;
 }
-async function triggerBrief(id, btn) {
+async function triggerBrief(id, btn, steer) {
   if (btn) { btn.disabled = true; btn.textContent = 'Investigation en cours…'; }
-  const r = await api(`/opportunities/${id}/brief`, { method: 'POST', body: '{}' });
+  const r = await api(`/opportunities/${id}/brief`, { method: 'POST', body: JSON.stringify({ steer: steer || '' }) });
   if (r && r.error) { toast(r.error); if (btn) { btn.disabled = false; btn.textContent = 'Générer le brief concret'; } }
-  else toast('Investigation profonde lancée — le brief apparaîtra ici en direct (~5-10 min de recherche).');
+  else toast((steer ? 'Investigation orientée lancée' : 'Investigation profonde lancée') + ' — visible en direct (~5-10 min).');
 }
 function wireBriefActions(card) {
   const id = card.dataset.id;
-  card.querySelector('[data-brief]')?.addEventListener('click', (e) => triggerBrief(id, e.target));
+  card.querySelector('[data-brief]')?.addEventListener('click', (e) => triggerBrief(id, e.target, card.querySelector('[data-steer]')?.value || ''));
   card.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
     const d = await api(`/opportunities/${id}`);
     const text = btn.dataset.copy === 'max' ? d.max_prompt : d.deeper_prompt;
@@ -457,7 +458,7 @@ function connectWs() {
 }
 function applyChanged(msg) {
   if (msg.type !== 'changed') return;
-  if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // don't clobber typing
+  if (document.activeElement && ['TEXTAREA', 'INPUT'].includes(document.activeElement.tagName)) return; // don't clobber typing
   if (OPEN_RUN) return updateRunDetailLive();
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities' || VIEW === 'validated') updateOpportunitiesLive();

@@ -48,6 +48,10 @@ CONVENTIONS (respect in any proposal)
 STRATEGIC LENS for scoring opportunities
 - Dead-center = deepens admin/community tooling for survival/RCON games, OR strengthens the freemium
   upsell, OR leverages the agent/Rust/Discord edges. Off-mission = becoming a generic host.
+- BattleMetrics is NOT a direct competitor. It is a GLOBAL/GENERIC tool covering ALL game servers;
+  Servitium is a SPECIALIZED deep-admin platform for a community's OWN servers. At most cite it as a
+  reference for what generic tools lack (no shop, no in-game economy, no 0% donations) - never frame
+  Servitium as competing with it head-on.
 `.trim();
 
 // The ACTIVE dossier: the auto-refreshed version (from CLAUDE.md + READMEs) when present, else the
