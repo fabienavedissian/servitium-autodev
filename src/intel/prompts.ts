@@ -1,6 +1,7 @@
 import { getActiveDossier } from './dossier';
 import { FEATURE_KEYS } from './score/rubric';
-import { NEW_GAME_PLAYBOOK, TARGET_APPS, testRuleFor } from './appContext';
+import { TARGET_APPS, testRuleFor } from './appContext';
+import { kindPlaybook, kindLabel } from './kindPlaybooks';
 
 // All SIE agents output STRICT JSON only (parsed with parseJsonLoose). They never pick the next
 // stage and never compute the final score — the FSM/code does. Grounding is the dossier blob.
@@ -82,19 +83,21 @@ export function feasibilityPrompt(
   sources: string,
   prior?: { findings: string[]; unknowns: string[] },
   steer?: string,
-  opts: { appContext?: string; isGame?: boolean } = {},
+  opts: { appContext?: string; kind?: string } = {},
 ): string {
   const priorBlock = prior && (prior.findings.length || prior.unknowns.length)
     ? `A PRIOR investigation already established these findings (treat them as known, build on them, do NOT redo):\n${prior.findings.map((f) => `- ${f}`).join('\n')}\n\nFOCUS this pass on RESOLVING these still-open unknowns - dig hard until each is answered, then move it into concreteFindings and shrink the unknowns list:\n${prior.unknowns.map((u) => `- ${u}`).join('\n')}`
     : '';
   const steerBlock = steer && steer.trim() ? `THE OWNER EXPLICITLY ASKS YOU TO ALSO INVESTIGATE/VERIFY THIS - make it a TOP priority of this pass and report concrete findings on it:\n"${steer.trim()}"` : '';
   const appBlock = opts.appContext ? `THE TARGET APP'S CONCRETE FILE MAP (dig in THESE real files, cite them in approachSteps/impactedApps, do NOT re-derive the layout):\n${opts.appContext}` : '';
-  const gameBlock = opts.isGame ? `THIS OPPORTUNITY ADDS A NEW GAME. Use this exhaustive new-game playbook as the backbone of approachSteps + impactedApps - it already names every per-repo wiring point, the 3 Rust gotchas (WebSocket RCON, no SQLite, server.cfg not INI), and the Steam app IDs:\n${NEW_GAME_PLAYBOOK}` : '';
+  const playbook = kindPlaybook(opts.kind);
+  const kindBlock = playbook ? `${kindLabel(opts.kind).toUpperCase()} — use this as the backbone of approachSteps + acceptanceCriteria + impactedApps; verify each point against the real code:\n${playbook}` : '';
   return [
     `You are the FEASIBILITY investigator. Produce a DEEP, EXHAUSTIVE, CONCRETE feasibility dossier for this Servitium opportunity.`,
+    `Tailor the dossier to the opportunity KIND: a SECURITY opp names the exact vuln class + the guard/decorator to add + a failing regression test; a BUG-FIX/REFACTOR opens with a failing test then the minimal fix; a PERFORMANCE opp states the metric + the index/query/cache change; a FEATURE reuses existing services + decides the free/Pro entitlement gate; an EVOLUTION checks breaking changes + the patch-package patches; a BUSINESS opp respects the live 9.99 EUR Pro/Stripe model. The injected playbook below is your backbone.`,
     steerBlock,
     appBlock,
-    gameBlock,
+    kindBlock,
     priorBlock,
     `Be RELENTLESS: run MANY web searches (aim for 10+), open and read the ACTUAL docs, RCON command references, .ini/config`,
     `references, mod/plugin pages, API docs, and real community threads. Cross-check every claim against a real source.`,

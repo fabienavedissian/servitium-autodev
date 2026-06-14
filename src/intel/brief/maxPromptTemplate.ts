@@ -1,5 +1,6 @@
 import { CONVENTIONS } from '../../agents/prompts';
-import { getAppContext, testRuleFor, NEW_GAME_PLAYBOOK } from '../appContext';
+import { getAppContext, testRuleFor } from '../appContext';
+import { kindPlaybook, kindLabel } from '../kindPlaybooks';
 
 // The hybrid deep-investigation output: a deterministic concrete brief (no extra LLM call) + a
 // ready-to-paste Max prompt (the economic linchpin: the human runs it on the flat-rate plan) + an
@@ -102,9 +103,10 @@ export function renderBriefMd(opp: OppLite, f: Feasibility, score: number): stri
 
 // The ready-to-paste Max prompt. Hard-constraints block imported VERBATIM from agents/prompts.ts
 // CONVENTIONS so the manual prompt can never drift from the autonomous one.
-export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opts: { isGame?: boolean } = {}): string {
+export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opts: { kind?: string } = {}): string {
   const apps = impactedOf(f);
   const appCtx = getAppContext(f.targetApp);
+  const playbook = kindPlaybook(opts.kind);
   const verify = (f.verifyCommands && f.verifyCommands.length ? f.verifyCommands : ['npm run build']);
   return [
     `# Role`,
@@ -168,9 +170,9 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
     `# Apps impacted (open each repo you touch; respect each app's OWN test + strictness rule)`,
     apps.map((a) => `- ${a.app} (~${a.pct}%): ${a.spec} | Test: ${a.test}`).join('\n'),
     ``,
-    opts.isGame ? `# New-game integration playbook (this opportunity adds a game — this is your per-repo backbone; follow it and the gotchas)` : '',
-    opts.isGame ? NEW_GAME_PLAYBOOK : '',
-    opts.isGame ? `` : '',
+    playbook ? `# ${kindLabel(opts.kind)} (apply this — your concrete, Servitium-grounded backbone for THIS kind of change)` : '',
+    playbook,
+    playbook ? `` : '',
     (f.unknowns ?? []).length ? `# Resolve these BLOCKING unknowns first (quick spike; if one is truly unresolvable, do everything else, then report it)` : '',
     (f.unknowns ?? []).length ? list(f.unknowns) : '',
     (f.fieldUnknowns ?? []).length ? `` : '',
@@ -213,8 +215,9 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number, opt
 
 // The hybrid "go deeper on Max" prompt: when the owner wants the maximal 50-prompt treatment run on
 // his flat-rate plan instead of spending more API. Frames a deep autonomous investigation.
-export function renderDeeperPrompt(opp: OppLite, f: Feasibility, opts: { isGame?: boolean } = {}): string {
+export function renderDeeperPrompt(opp: OppLite, f: Feasibility, opts: { kind?: string } = {}): string {
   const appCtx = getAppContext(f.targetApp);
+  const playbook = kindPlaybook(opts.kind);
   return [
     `You are a world-class senior engineer and technical lead on Servitium (TypeScript expert: NestJS, Angular 20, MongoDB,`,
     `Socket.IO, RCON, SteamCMD, a cross-platform Electron + Rust agent). Run a DEEP, exhaustive feasibility investigation for`,
@@ -230,8 +233,8 @@ export function renderDeeperPrompt(opp: OppLite, f: Feasibility, opts: { isGame?
     ``,
     appCtx ? `Concrete file map for ${f.targetApp} (build on this, do not re-derive it):\n${appCtx}` : '',
     appCtx ? `` : '',
-    opts.isGame ? `New-game integration playbook (use as the per-repo backbone; verify each step against the live code):\n${NEW_GAME_PLAYBOOK}` : '',
-    opts.isGame ? `` : '',
+    playbook ? `${kindLabel(opts.kind)} (use as the backbone; verify each point against the live code):\n${playbook}` : '',
+    playbook ? `` : '',
     `Deliver: (1) a verified feasibility verdict, (2) the exact technical mechanism end-to-end, (3) a phased build plan`,
     `naming real files in the Servitium monorepo with the per-app test harness for each, (4) risks + edge cases, (5) a test`,
     `strategy, (6) the apps impacted with a rough effort split. Read CLAUDE.md and MEMORY.md first. Use as many`,

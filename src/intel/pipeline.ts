@@ -358,9 +358,9 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   })();
   // AUTO-LOOP: keep investigating (each pass builds on prior findings + targets open BLOCKING unknowns)
   // until zero blockers remain (READY), or no progress, or passes/budget exhausted. No manual re-clicking.
-  // The targetApp's concrete file map (known after pass 1) + the new-game playbook (game opps) are fed
-  // back into each subsequent pass so the brief digs in the right files instead of re-deriving them.
-  const isGame = isGameOpp(r.kind, r.dedup_key);
+  // The targetApp's concrete file map (known after pass 1) + the kind-specific playbook (security, perf,
+  // feature, evolution, game...) are fed into each pass so the brief is rigorous for THIS kind of change.
+  const kind = isGameOpp(r.kind, r.dedup_key) ? 'game' : (r.kind ?? '');
   let appCtx = '';
   let f: Feasibility | undefined;
   let prevBlockers = Number.POSITIVE_INFINITY;
@@ -370,7 +370,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
     activity = pass === 1 ? 'Investigation profonde…' : 'Approfondissement automatique…';
     update();
     const perPass = Math.min(deps.cfg.PER_BRIEF_BUDGET_USD, totalBudget - briefSpent);
-    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer, { appContext: appCtx, isGame }), {
+    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer, { appContext: appCtx, kind }), {
       allowedTools: ['WebSearch', 'WebFetch'],
       maxBudgetUsd: perPass,
       onMessage: (msg) => {
@@ -408,8 +408,8 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   turns = maxTurns; pass = maxPasses;
   update();
   const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
-  const maxPrompt = renderMaxPrompt(oppEn, f, r.score, { isGame }); // English (for the coding session)
-  const deeperPrompt = renderDeeperPrompt(oppEn, f, { isGame });
+  const maxPrompt = renderMaxPrompt(oppEn, f, r.score, { kind }); // English (for the coding session)
+  const deeperPrompt = renderDeeperPrompt(oppEn, f, { kind });
   // French brief for the owner to read.
   const tr = await runSie(deps, rs, 'translate', translateFeasibilityPrompt({ verdict: f.verdict, concreteFindings: f.concreteFindings, unknowns: f.unknowns, fieldUnknowns: f.fieldUnknowns, approachSteps: f.approachSteps, dataModel: f.dataModel, outOfScope: f.outOfScope, acceptanceCriteria: f.acceptanceCriteria }));
   const fFr: Feasibility = { ...f, ...(parseJsonLoose<Partial<Feasibility>>(tr.text) ?? {}) };
