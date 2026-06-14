@@ -47,12 +47,13 @@ interface RunState {
   spentUsd: number;
 }
 
-// Fill {{slots}} from a tiny grounding map (Phase 0: static; Phase 1 reads the KB).
+// Fill {{slots}} for the sensing queries. games/candidateGames must track the dossier's game list
+// (update both when a game ships); year is derived so it never drifts.
 const SLOTS: Record<string, string> = {
   games: 'Conan Exiles, Soulmask',
   competitors: 'game server management panel, BattleMetrics, gamepanel',
-  candidateGames: 'Rust, Palworld, Enshrouded, V Rising, ARK',
-  year: '2026',
+  candidateGames: 'Rust, ARK Survival Ascended, Palworld, Enshrouded, V Rising',
+  year: String(new Date().getFullYear()),
 };
 const fillQuery = (t: string): string => t.replace(/\{\{(\w+)\}\}/g, (_, k) => SLOTS[k] ?? '');
 
@@ -408,7 +409,7 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   update();
   const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
   const maxPrompt = renderMaxPrompt(oppEn, f, r.score, { isGame }); // English (for the coding session)
-  const deeperPrompt = renderDeeperPrompt(oppEn, f);
+  const deeperPrompt = renderDeeperPrompt(oppEn, f, { isGame });
   // French brief for the owner to read.
   const tr = await runSie(deps, rs, 'translate', translateFeasibilityPrompt({ verdict: f.verdict, concreteFindings: f.concreteFindings, unknowns: f.unknowns, fieldUnknowns: f.fieldUnknowns, approachSteps: f.approachSteps, dataModel: f.dataModel, outOfScope: f.outOfScope, acceptanceCriteria: f.acceptanceCriteria }));
   const fFr: Feasibility = { ...f, ...(parseJsonLoose<Partial<Feasibility>>(tr.text) ?? {}) };

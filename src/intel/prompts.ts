@@ -1,6 +1,6 @@
 import { getActiveDossier } from './dossier';
 import { FEATURE_KEYS } from './score/rubric';
-import { NEW_GAME_PLAYBOOK, TARGET_APPS } from './appContext';
+import { NEW_GAME_PLAYBOOK, TARGET_APPS, testRuleFor } from './appContext';
 
 // All SIE agents output STRICT JSON only (parsed with parseJsonLoose). They never pick the next
 // stage and never compute the final score — the FSM/code does. Grounding is the dossier blob.
@@ -151,8 +151,9 @@ export function verifyIntegrationPrompt(
     `Acceptance criteria (each must be objectively met in the code):\n${(brief.acceptanceCriteria ?? []).map((x) => `- ${x}`).join('\n') || '- (none specified - infer from the approach)'}`,
     `Intended approach (reference):\n${(brief.approachSteps ?? []).map((x) => `- ${x}`).join('\n')}`,
     `For EACH acceptance criterion, find the code that satisfies it (cite file:line) or mark it missing. Also check Servitium`,
-    `conventions: i18n in all 6 languages for new UI strings, no emoji, a green mongodb-memory-server integration test for`,
-    `API changes, no internal infra/filenames leaked in UI. "done" ONLY if you actually saw the code; else "missing" with the file to fix.`,
+    `conventions: i18n in all 6 languages for new UI strings, no emoji, no internal infra/filenames leaked in UI, and the`,
+    `CORRECT test for this app — ${opp.targetApp || 'servitium-api'}: ${testRuleFor(opp.targetApp)} (do NOT demand a`,
+    `mongodb-memory-server test on a non-API app). "done" ONLY if you actually saw the code; else "missing" with the file to fix.`,
     `Output ONLY JSON: {"integrationScore":0-100,"isComplete":boolean (true ONLY if everything is met and you would ship it),`,
     `"verdict":"2-3 sentences owner-facing","done":["criterion met - file:line"],"missing":["what is missing/wrong, specifically, with the file"],`,
     `"followupPrompt":"a ready-to-paste Max prompt to finish/fix ONLY the remaining gaps; empty string if complete"}.`,
