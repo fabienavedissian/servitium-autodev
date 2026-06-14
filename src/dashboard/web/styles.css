@@ -252,3 +252,16 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .brief-running { display: block; padding: 6px 0; }
 .brief-prog-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
 .brief-pct { color: var(--accent); font-weight: 600; font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Rendered brief (markdown -> HTML) */
+.brief-doc { background: var(--bg-2); border: 1px solid var(--line); border-radius: 11px; padding: 18px 22px; margin-top: 6px; max-height: 600px; overflow: auto; line-height: 1.62; font-size: 13.5px; }
+.brief-doc h2 { font-size: 17px; letter-spacing: -0.3px; margin: 2px 0 12px; }
+.brief-doc h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 20px 0 9px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.brief-doc h4 { font-size: 13px; color: var(--accent-2); margin: 15px 0 6px; }
+.brief-doc p { margin: 9px 0; color: var(--txt); }
+.brief-doc ul { margin: 9px 0; padding-left: 20px; }
+.brief-doc li { margin: 7px 0; }
+.brief-doc li::marker { color: var(--accent); }
+.brief-doc code { background: #0e1320; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9be6c0; white-space: nowrap; }
+.brief-doc strong { color: var(--txt); font-weight: 650; }
+.brief-doc a { color: var(--accent); }

@@ -2,6 +2,30 @@
 const $ = (s, r = document) => r.querySelector(s);
 const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// Minimal, safe markdown -> HTML (escape first, then apply markers). For rendering briefs nicely.
+function mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1 ↗</a>');
+}
+function renderMarkdown(md) {
+  const lines = esc(md).split('\n');
+  let html = '';
+  let inList = false;
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+  for (const line of lines) {
+    if (/^### /.test(line)) { closeList(); html += `<h4>${mdInline(line.slice(4))}</h4>`; }
+    else if (/^## /.test(line)) { closeList(); html += `<h3>${mdInline(line.slice(3))}</h3>`; }
+    else if (/^# /.test(line)) { closeList(); html += `<h2>${mdInline(line.slice(2))}</h2>`; }
+    else if (/^[-*] /.test(line)) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${mdInline(line.slice(2))}</li>`; }
+    else if (line.trim() === '') { closeList(); }
+    else { closeList(); html += `<p>${mdInline(line)}</p>`; }
+  }
+  closeList();
+  return html;
+}
 const usd = (n) => '$' + (Number(n) || 0).toFixed(n < 1 ? 4 : 2);
 
 async function api(path, opts) {
@@ -249,7 +273,7 @@ function wireBriefActions(card) {
     const zone = card.querySelector('.brief-zone');
     if (zone.dataset.open) { zone.innerHTML = ''; zone.dataset.open = ''; return; }
     const d = await api(`/opportunities/${id}`);
-    zone.innerHTML = `<pre class="brief">${esc(d.brief_md || '(pas de brief)')}</pre>`; zone.dataset.open = '1';
+    zone.innerHTML = `<div class="brief-doc">${d.brief_md ? renderMarkdown(d.brief_md) : '(pas de brief)'}</div>`; zone.dataset.open = '1';
   });
 }
 function wireOpp(card) {
