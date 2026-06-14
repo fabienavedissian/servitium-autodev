@@ -196,15 +196,20 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
     // IDEATE (Sonnet, 1 call) -------------------------------------------------
     let opportunities = 0;
     let briefs = 0;
-    if (signalIds.length && !overRunBudget()) {
-      stage('IDEATE', `${signalIds.length} fresh signals`);
+    // ALL accumulated research feeds ideation EVERY run, not just today's fresh signals - so the
+    // engine connects dots across days and nothing in the Veille is ever ignored.
+    const recentSignals = (deps.db.prepare("SELECT id, angle, title, summary FROM signal WHERE status != 'archived' AND last_seen_at >= ? ORDER BY id DESC LIMIT 90").all(daysAgoIso(now, 45)) as { id: number; angle: string; title: string; summary: string }[]).map((r) => ({ id: r.id, angle: r.angle, title: r.title, summary: r.summary ?? '' }));
+    const seenSig = new Set(signalIds.map((s) => s.id));
+    const ideaSignals = [...signalIds, ...recentSignals.filter((r) => !seenSig.has(r.id))].slice(0, 90);
+    if (ideaSignals.length && !overRunBudget()) {
+      stage('IDEATE', `${signalIds.length} nouveaux + ${ideaSignals.length - signalIds.length} accumulés`);
       const openTitles = (deps.db.prepare(`SELECT title FROM opportunity WHERE status IN ('proposed','greenlit','accepted')`).all() as { title: string }[]).map((r) => r.title);
       // Owner corrections: rejected opportunities (with their reason) + "already exists" logbook notes.
       // These teach the engine what NOT to re-propose - the lightweight learning loop.
       const rejected = (deps.db.prepare("SELECT COALESCE(title_fr,title) AS t, comment FROM opportunity WHERE status='rejected' ORDER BY (decided_at IS NULL), decided_at DESC LIMIT 30").all() as { t: string; comment: string | null }[]).map((r) => (r.comment ? `${r.t} (raison: ${r.comment})` : r.t));
       const ownerExists = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('can','did') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
       const ownerWants = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('want','note') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
-      const i = await runSie(deps, rs, 'ideator', ideatePrompt(signalIds, openTitles, [...rejected, ...ownerExists], ownerWants));
+      const i = await runSie(deps, rs, 'ideator', ideatePrompt(ideaSignals, openTitles, [...rejected, ...ownerExists], ownerWants));
       const cand = parseJsonLoose<{ opportunities?: IdeaOpp[] }>(i.text)?.opportunities ?? [];
 
       // SCORE each (Sonnet) -> code computes score -> upsert + tier --------------
@@ -219,7 +224,7 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
         const scoreRes = scoreOpportunity({ features: parsed.features ?? {}, evidenceCount: parsed.evidenceCount ?? {}, signalCount: (c.evidence ?? []).length || 1, daysSinceLastSignal: 0 });
         const oid = repos.upsertOpportunity(
           deps.db,
-          { kind: c.kind ?? 'feature', angle: signalIds.find((s) => (c.evidence ?? []).includes(s.id))?.angle ?? 'product', dedupKey: c.dedupKey || `idea:${slug(c.title)}`, title: c.title, thesis: c.thesis, whyNow: c.whyNow, fit: c.fit, featureJson, sourcesJson: JSON.stringify(c.sources ?? []), signalCount: (c.evidence ?? []).length || 1, lastSignalAt: at },
+          { kind: c.kind ?? 'feature', angle: ideaSignals.find((s) => (c.evidence ?? []).includes(s.id))?.angle ?? 'product', dedupKey: c.dedupKey || `idea:${slug(c.title)}`, title: c.title, thesis: c.thesis, whyNow: c.whyNow, fit: c.fit, featureJson, sourcesJson: JSON.stringify(c.sources ?? []), signalCount: (c.evidence ?? []).length || 1, lastSignalAt: at },
           scoreRes.score,
           DEFAULT_WEIGHTS.version,
           at,

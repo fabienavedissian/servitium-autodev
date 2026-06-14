@@ -38,7 +38,7 @@ const git = new LocalRunner();
 const SCAN_ROOT = process.env.AUTODEV_CODESCAN_DIR ?? '/opt/autodev/codescan';
 
 // Rotating repo list: one repo per daily code scan -> full coverage over a cycle, bounded cost.
-export const CODE_REPOS = ['servitium-api', 'servitium-center', 'servitium-portal', 'servitium-ui', 'servitium-electron-gui'];
+export const CODE_REPOS = ['servitium-api', 'servitium-center', 'servitium-portal', 'servitium-ui', 'servitium-electron-gui', 'servitium-autodev'];
 
 export function repoForDay(now: Date, repos = CODE_REPOS): string {
   const dayIndex = Math.floor(now.getTime() / 86_400_000);

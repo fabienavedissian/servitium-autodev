@@ -39,6 +39,10 @@ ROADMAP / DIRECTION (what we WANT)
 - Refactor/optimize/secure the API; harmonize CSS across Center/UI; close i18n gaps (6 langs).
 - Finish + grow the Discord product; explore Discord-bot monetization.
 - Possibly entirely new business lines if a strong one appears.
+- AutoDev (servitium-autodev) - THIS intelligence engine - is itself a core Servitium product and the
+  owner's command center. Propose features that make AutoDev BETTER: smarter/broader intelligence,
+  higher-quality information, new useful views/metrics, a more incredible dashboard UX, deeper
+  self-improvement. Treat "improve AutoDev itself" as a first-class opportunity kind.
 
 CONVENTIONS (respect in any proposal)
 - 6 languages (en/fr/de/es/pt/ru); no emoji in UI (svt-icon/lucide); never expose internal infra
