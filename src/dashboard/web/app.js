@@ -46,7 +46,7 @@ function renderLogin() {
 
 /* ---------- Shell ---------- */
 function renderShell() {
-  const primary = [['opportunities', 'Opportunités'], ['logbook', 'Carnet de bord']];
+  const primary = [['opportunities', 'Opportunités'], ['validated', 'Mes briefs'], ['logbook', 'Carnet de bord']];
   const secondary = [['overview', 'Aperçu'], ['proposals', 'Propositions'], ['runs', 'Runs']];
   const link = ([k, l]) => `<a data-v="${k}">${l}</a>`;
   $('#app').innerHTML = '';
@@ -71,6 +71,7 @@ function route() {
   if (OPEN_RUN) return renderRunDetail(OPEN_RUN);
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities') renderOpportunities();
+  else if (VIEW === 'validated') renderValidated();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'proposals') renderProposals();
   else renderRuns();
@@ -143,7 +144,7 @@ async function renderOpportunities() {
   const lastTxt = last ? `dernière veille ${esc(last.run_date)} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
   const cap = 52, monPct = Math.min(100, (ov.intelMonthUsd / cap) * 100 || 0);
   const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
-  const statFilter = [['open', 'À traiter'], ['validated', 'Validées'], ['all', 'Tout']].map(([k, l]) => `<button data-stat="${k}" class="${OPP_STATUS === k ? 'active' : ''}">${l}</button>`).join('');
+  const statFilter = [['open', 'À traiter'], ['all', 'Tout']].map(([k, l]) => `<button data-stat="${k}" class="${OPP_STATUS === k ? 'active' : ''}">${l}</button>`).join('');
   const lb = Object.entries(ov.learnedBias || {}).sort((a, b) => b[1] - a[1]);
   const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix :</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? '↑' : '↓'} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
   $('#view').innerHTML = `
@@ -160,6 +161,18 @@ async function renderOpportunities() {
   $('#scan-code').addEventListener('click', async () => { const r = await api('/sie/code-scan-now', { method: 'POST', body: '{}' }); toast(r && r.error ? r.error : 'Analyse du code lancée — résultats en direct.'); });
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
   $('#view').querySelectorAll('[data-stat]').forEach((b) => b.addEventListener('click', () => { OPP_STATUS = b.dataset.stat; renderOpportunities(); }));
+  $('#view').querySelectorAll('.opp').forEach(wireOpp);
+}
+
+// Dedicated menu: the opportunities the owner has pushed (validated -> brief + Max prompt). They live here forever.
+async function renderValidated() {
+  const list = await api('/opportunities?status=validated&source=' + OPP_SOURCE);
+  const srcFilter = [['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']].map(([k, l]) => `<button data-src="${k}" class="${OPP_SOURCE === k ? 'active' : ''}">${l}</button>`).join('');
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2>Mes briefs</h2><div class="muted">Les sujets que tu as poussés : brief concret + prompt Max prêts. Ils restent ici à vie pour ne pas les refaire.</div></div><span class="live-dot" title="en direct"></span></div>
+    <div class="filters">${srcFilter}</div>
+    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucun sujet poussé pour l’instant. Dans « Opportunités », clique « Valider » : l’investigation se lance et le sujet atterrit ici avec son brief + prompt Max.</div>'}</div>`;
+  $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderValidated(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
 }
 // Dynamic (live-patchable) fragments — shared by initial render and the surgical WS update.
@@ -241,7 +254,7 @@ function wireOpp(card) {
     const fr = { greenlight: 'validé', reject: 'pas intéressé', close: 'clôturé', thumbs_up: 'utile', thumbs_down: 'hors sujet' };
     toast('Enregistré : ' + (fr[act] || act) + (act === 'reject' && body.comment ? ' (le moteur ne le reproposera plus)' : ''));
     if (act === 'greenlight' && !card.querySelector('[data-copy]')) await triggerBrief(id);
-    if (['greenlight', 'close', 'reject'].includes(act)) renderOpportunities();
+    if (['greenlight', 'close', 'reject'].includes(act)) route();
   }));
   card.querySelector('[data-send-comment]')?.addEventListener('click', async () => {
     const txt = card.querySelector('[data-comment]').value.trim();
@@ -264,8 +277,9 @@ function patchOppCard(card, o) {
 }
 async function updateOpportunitiesLive() {
   const container = $('#opps');
-  if (!container) return renderOpportunities();
-  const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
+  if (!container) return route();
+  const status = VIEW === 'validated' ? 'validated' : OPP_STATUS;
+  const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${status}&source=${OPP_SOURCE}`)]);
   const seen = new Set();
   for (const o of list) {
     seen.add(String(o.id));
@@ -412,7 +426,7 @@ function applyChanged(msg) {
   if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return; // don't clobber typing
   if (OPEN_RUN) return updateRunDetailLive();
   if (VIEW === 'overview') renderOverview();
-  else if (VIEW === 'opportunities') updateOpportunitiesLive();
+  else if (VIEW === 'opportunities' || VIEW === 'validated') updateOpportunitiesLive();
   else if (VIEW === 'logbook') renderLogbook();
   else if (VIEW === 'runs') renderRuns();
 }
