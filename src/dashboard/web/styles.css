@@ -480,6 +480,23 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .job-label { flex: 1; min-width: 0; font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .job-pct { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; font-size: var(--fs-sm); flex: none; }
 .job-stage { color: var(--txt-dim); font-size: var(--fs-xs); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Brief readiness verdict — the plain-language "send it / keep digging" signal */
+.ready { display: flex; gap: 11px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-md); margin-bottom: 12px; border: 1px solid var(--line); box-shadow: var(--hairline-top); }
+.ready-ico { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; }
+.ready-body { flex: 1; min-width: 0; }
+.ready-label { font-weight: 700; font-size: var(--fs-base); display: flex; align-items: center; gap: 9px; }
+.ready-pct { font-variant-numeric: tabular-nums; font-weight: 600; font-size: var(--fs-2xs); padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--txt-dim); }
+.ready-msg { color: var(--txt-dim-2); font-size: var(--fs-sm); margin-top: 3px; line-height: 1.45; }
+.ready-ready { background: var(--ok-soft); border-color: var(--ok-line); }
+.ready-ready .ready-ico { background: rgba(70,211,154,.18); color: var(--ok); }
+.ready-ready .ready-label { color: var(--ok); }
+.ready-blocked { background: var(--warn-soft); border-color: var(--warn-line); }
+.ready-blocked .ready-ico { background: rgba(245,177,61,.18); color: var(--warn); }
+.ready-blocked .ready-label { color: var(--warn); }
+.ready-discouraged { background: var(--danger-soft); border-color: var(--danger-line); }
+.ready-discouraged .ready-ico { background: rgba(255,107,129,.18); color: var(--danger); }
+.ready-discouraged .ready-label { color: var(--danger); }
 .ic { vertical-align: -.18em; }
 a .ic { vertical-align: -.12em; }
 .nav-slot { display: flex; align-items: center; }

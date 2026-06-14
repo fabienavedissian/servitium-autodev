@@ -9,7 +9,8 @@ export interface Feasibility {
   verdict: string;
   targetApp: string;
   concreteFindings: string[];
-  unknowns: string[];
+  unknowns: string[]; // BLOCKING: must be resolved by more research before building
+  fieldUnknowns?: string[]; // only confirmable on a live server during dev — NOT blockers, validate while building
   approachSteps: string[];
   dataModel?: string;
   outOfScope?: string;
@@ -44,9 +45,12 @@ export function renderBriefMd(opp: OppLite, f: Feasibility, score: number): stri
     `## Constats concrets (le detail actionnable)`,
     list(f.concreteFindings),
     ``,
-    `## Inconnues a lever EN PREMIER`,
-    list(f.unknowns),
-    ``,
+    (f.unknowns ?? []).length ? `## Inconnues bloquantes a lever EN PREMIER` : '',
+    (f.unknowns ?? []).length ? list(f.unknowns) : '',
+    (f.unknowns ?? []).length ? `` : '',
+    (f.fieldUnknowns ?? []).length ? `## A valider sur le terrain pendant le dev (normal, non bloquant)` : '',
+    (f.fieldUnknowns ?? []).length ? list(f.fieldUnknowns) : '',
+    (f.fieldUnknowns ?? []).length ? `` : '',
     `## Approche proposee`,
     list(f.approachSteps),
     f.dataModel ? `\n**Donnees/modele :** ${f.dataModel}` : '',
@@ -63,9 +67,31 @@ export function renderBriefMd(opp: OppLite, f: Feasibility, score: number): stri
 // CONVENTIONS so the manual prompt can never drift from the autonomous one.
 export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number): string {
   return [
+    `# Who you are`,
+    `You are a SENIOR FULL-STACK ENGINEER and the technical lead on Servitium — a deep-admin platform for survival/RCON`,
+    `game communities (Conan Exiles + Soulmask today). You are a master of the exact stack you will touch: Angular 20`,
+    `(standalone components, signals, @if/@for control flow, inject(), the localize i18n pipe, the svt-* design system),`,
+    `NestJS + Mongoose + MongoDB + Socket.IO, TypeScript strict, the RCON protocol, and a cross-platform Electron + Rust`,
+    `agent. You write production-grade, secure, fully-internationalized code (6 languages: en/fr/de/es/pt/ru), never expose`,
+    `internal infra or raw filenames in UI, use no emoji (svt-icon/lucide only), and you ship every API change with a green`,
+    `mongodb-memory-server integration test. You work in small, atomic, reviewable commits and you never leave a build red.`,
+    ``,
     `You are working in the Servitium monorepo (E:\\Servitium Project). Read CLAUDE.md and the memory index`,
     `at C:\\Users\\Fabien\\.claude\\projects\\e--Servitium-Project\\memory\\MEMORY.md FIRST, then the README of the app`,
     `you will touch. Do not re-derive flows from source.`,
+    ``,
+    `# Servitium architecture (respect it — extend, never reinvent)`,
+    `- 5 apps in the monorepo: servitium-api (NestJS + Mongoose + MongoDB + Socket.IO), servitium-center (Angular 20 admin`,
+    `  panel), servitium-portal (Angular player site), servitium-ui (shared svt-* design system), and the agent (Electron +`,
+    `  a Rust game_db_reader, installed on the game host, piloted entirely from Center). Cross-process WS types live in /shared.`,
+    `- Two-collection model: Server = the community/brand (name, shop, donations, raid protection, wars, quests, wipes,`,
+    `  banner, players — one Server is billable) vs GameInstance = the runtime the agent pilots (ip/ports/passwords, mods,`,
+    `  gameMode, heartbeat, desiredState, install paths). Server.gameInstanceId links them; the agent WS room is keyed by gameInstanceId.`,
+    `- These features ALREADY EXIST — extend them, do NOT rebuild: shop + 0%-commission donations, raid protection, wars,`,
+    `  bounty hunt, wipe management, live map (handles both Conan maps), quests/missions, a Discord bot (tickets + item gifts`,
+    `  with a real items DB), host management. Reuse the existing services and Server features.`,
+    `- Adding a new game reuses the pattern: a game_db_reader flavor that reads the game's DB, the RCON command layer for`,
+    `  kick/ban/give/teleport, then wiring the EXISTING Server features (shop, economy, wipes, map) onto the new game's model.`,
     ``,
     `# Goal`,
     `${f.verdict}`,
@@ -80,8 +106,11 @@ export function renderMaxPrompt(opp: OppLite, f: Feasibility, score: number): st
     list(f.concreteFindings),
     `- Sources: ${sourceList(opp.sources)}`,
     ``,
-    `# Resolve these unknowns FIRST (quick spike, STOP and report if any is a blocker)`,
-    list(f.unknowns),
+    (f.unknowns ?? []).length ? `# Resolve these unknowns FIRST (quick spike, STOP and report if any is a blocker)` : '',
+    (f.unknowns ?? []).length ? list(f.unknowns) : '',
+    (f.fieldUnknowns ?? []).length ? `` : '',
+    (f.fieldUnknowns ?? []).length ? `# Validate on the real environment as you build (NOT blockers — confirm during implementation, adjust if they differ)` : '',
+    (f.fieldUnknowns ?? []).length ? list(f.fieldUnknowns) : '',
     ``,
     `# Proposed approach`,
     list(f.approachSteps),

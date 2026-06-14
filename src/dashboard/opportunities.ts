@@ -19,12 +19,25 @@ function parseFeatureJson(s: string): { features: Record<string, number>; eviden
 // it still has to spike, and how well-evidenced the opportunity is. Null until a brief exists.
 function promptQuality(rec: string | null, unknowns: number | null, evidenceCoverage: number): number | null {
   if (!rec) return null;
-  let q = 90 - (unknowns ?? 0) * 12;
+  let q = 96 - (unknowns ?? 0) * 14; // only BLOCKING unknowns drag the score (field-validation items don't)
   if (rec === 'incubate') q -= 8;
   else if (rec === 'park') q -= 20;
   else if (rec === 'drop') q -= 30;
-  q += Math.round((evidenceCoverage - 0.5) * 20);
-  return Math.max(25, Math.min(95, q));
+  q += Math.round((evidenceCoverage - 0.5) * 16);
+  return Math.max(25, Math.min(100, q));
+}
+
+// A plain-language verdict so the owner knows whether to send the prompt or keep digging — replaces
+// the ambiguous bare percentage. ready=true means: send it, the feature will work. Field-validation
+// items (confirmed during dev) are normal and do NOT block readiness.
+function readinessOf(rec: string | null, blockers: number, fieldCount: number, hasBrief: boolean): Record<string, unknown> | null {
+  if (!hasBrief || !rec) return null;
+  const field = fieldCount > 0 ? ` ${fieldCount} point${fieldCount > 1 ? 's' : ''} se confirmeront pendant le dev (normal, non bloquant).` : '';
+  if (rec === 'drop') return { ready: false, level: 'discouraged', label: 'Déconseillé', msg: 'Le moteur déconseille de construire ça en l’état.' };
+  if (rec === 'park') return { ready: false, level: 'discouraged', label: 'À mettre de côté', msg: 'Pas le bon moment selon le moteur — à garder pour plus tard.' };
+  if (blockers > 0) return { ready: false, level: 'blocked', label: `${blockers} point${blockers > 1 ? 's' : ''} à creuser`, msg: `Encore ${blockers} inconnue${blockers > 1 ? 's' : ''} bloquante${blockers > 1 ? 's' : ''} avant d’être sûr. Clique « Approfondir » (ou relance) pour les lever.` };
+  if (rec === 'incubate') return { ready: true, level: 'ready', label: 'Prêt (à incuber)', msg: `Techniquement prêt : faisable, mais à incuber (pas la priorité immédiate).${field}` };
+  return { ready: true, level: 'ready', label: 'Prêt à envoyer', msg: `C’est bon : investigation complète, la feature est faisable. Inutile de pousser plus — colle-le dans Max.${field}` };
 }
 
 function breakdown(featureJson: string, signalCount: number, lastSignalAt?: string) {
@@ -53,15 +66,21 @@ export function listOpportunities(db: DB, status = 'open', source = 'all'): Reco
   if (!['open', 'validated', 'all'].includes(status)) params.status = status;
   if (source === 'web' || source === 'code') params.source = source;
   const rows = db
-    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, brief_state, detail, brief_progress, brief_started_at, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
+    .prepare(`SELECT id, rank, score, kind, angle, source_kind, repo, COALESCE(title_fr,title) AS title, COALESCE(thesis_fr,thesis) AS thesis, COALESCE(why_now_fr,why_now) AS why_now, COALESCE(fit_fr,fit) AS fit, sources_json, feature_json, feasibility_json, signal_count, last_signal_at, flagship, seen_before, relevance, status, comment, recommendation, unknowns_count, brief_state, detail, brief_progress, brief_started_at, (brief_md IS NOT NULL) AS has_brief FROM opportunity WHERE ${where} ORDER BY (rank IS NULL), rank, score DESC`)
     .all(params) as Record<string, unknown>[];
   return rows.map((r) => {
+    const { feasibility_json, ...rest } = r;
     const bd = breakdown(String(r.feature_json ?? '{}'), Number(r.signal_count ?? 1), r.last_signal_at as string | undefined);
+    let fieldCount = 0;
+    try { fieldCount = ((JSON.parse(String(feasibility_json || '{}')) as { fieldUnknowns?: string[] }).fieldUnknowns ?? []).length; } catch { /* none */ }
+    const blockers = Number(r.unknowns_count ?? 0);
     return {
-      ...r,
+      ...rest,
       sources: safeArr(r.sources_json),
       breakdown: bd,
-      promptQuality: promptQuality((r.recommendation as string) ?? null, r.unknowns_count as number | null, bd.evidenceCoverage),
+      promptQuality: promptQuality((r.recommendation as string) ?? null, blockers, bd.evidenceCoverage),
+      fieldCount,
+      readiness: readinessOf((r.recommendation as string) ?? null, blockers, fieldCount, !!r.has_brief),
     };
   });
 }

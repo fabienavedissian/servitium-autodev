@@ -407,6 +407,12 @@ function briefEta(startedAt, pct) {
   const remaining = Math.round((((Date.now() - Date.parse(startedAt)) / 1000) * (100 - pct)) / pct);
   return (remaining > 0 && remaining < 3600) ? ` · ~${fmtDur(remaining)} restantes` : '';
 }
+function readinessHTML(o) {
+  const r = o.readiness;
+  if (!r) return '';
+  const ic = r.level === 'ready' ? icon('check', 18) : r.level === 'discouraged' ? icon('x', 18) : icon('alert', 18);
+  return `<div class="ready ready-${r.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(r.label)}${o.promptQuality != null ? `<span class="ready-pct">${o.promptQuality}%</span>` : ''}</div><div class="ready-msg">${esc(r.msg)}</div></div></div>`;
+}
 function briefActionsHTML(o) {
   if (o.brief_state === 'running') {
     const pct = Math.max(2, Math.min(100, o.brief_progress || 0));
@@ -414,11 +420,8 @@ function briefActionsHTML(o) {
   }
   if (o.brief_state === 'failed' && !o.has_brief) return `<button class="btn ok" data-brief>Relancer l'investigation</button><span class="muted small">${esc(o.detail || 'échec')}</span>`;
   if (!o.has_brief) return `<button class="btn ok" data-brief>Générer le brief concret</button><span class="muted small">investigation Opus profonde (~5-10 min) → brief concret + prompt Max</span>`;
-  const pq = o.promptQuality != null
-    ? `<span class="pq ${pqClass(o.promptQuality)}" title="Fiabilité du prompt selon la profondeur d'investigation. Les inconnues se lèvent avec le prompt « approfondir » sur Max.">Qualité du prompt : ${o.promptQuality}%${o.unknowns_count ? ` · ${o.unknowns_count} inconnue${o.unknowns_count > 1 ? 's' : ''} à lever` : ''}</span>`
-    : '';
-  return `<div class="brief-buttons"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir »</button><button class="btn ghost" data-view-brief>Voir le brief</button><button class="btn ghost" data-brief title="relance l'enquête : lève les inconnues restantes + ta consigne ci-dessous — le % monte">Approfondir</button>${pq}</div>
-    <div class="steer-box"><label class="steer-label">Orienter la prochaine passe (optionnel)</label><textarea data-steer rows="3" placeholder="Ex : vérifie que chaque commande RCON marche vraiment, ajoute les commandes admin du mode hardcore, creuse l'intégration avec Oxide..."></textarea></div>`;
+  const push = !o.readiness || !o.readiness.ready; // once it's ready, hide the "keep pushing" controls
+  return `${readinessHTML(o)}<div class="brief-buttons"><button class="btn ok" data-copy="max">Copier le prompt Max</button><button class="btn ghost" data-copy="deeper">Copier le prompt « approfondir » (sur Max)</button><button class="btn ghost" data-view-brief>Voir le brief</button>${push ? `<button class="btn ghost" data-brief title="relance une passe d'investigation pour lever les inconnues restantes">Approfondir encore</button>` : ''}</div>${push ? `<div class="steer-box"><label class="steer-label">Orienter la prochaine passe (optionnel)</label><textarea data-steer rows="3" placeholder="Ex : vérifie que chaque commande RCON marche vraiment, ajoute les commandes admin du mode hardcore, creuse l'intégration avec Oxide..."></textarea></div>` : ''}`;
 }
 function oppCard(o) {
   const b = o.breakdown || { bars: [] };

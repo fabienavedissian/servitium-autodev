@@ -303,65 +303,95 @@ async function briefRow(deps: VeilleDeps, rs: RunState, r: BriefRow, at: string)
   deps.onStage?.('BRIEF', r.title);
   const startIso = new Date().toISOString();
   const maxTurns = SIE_ROLES.feasibility.maxTurns;
+  const maxPasses = deps.cfg.SIE_BRIEF_MAX_PASSES;
+  const totalBudget = deps.cfg.SIE_BRIEF_TOTAL_BUDGET_USD;
+  let pass = 0;
   let turns = 0;
   let searches = 0;
   let reads = 0;
+  let briefSpent = 0;
   let activity = 'Investigation profonde lancée…';
   const update = (state = 'running'): void => {
-    const pct = state === 'done' ? 100 : Math.min(95, Math.round((turns / maxTurns) * 100));
+    const within = Math.min(1, turns / maxTurns);
+    const pct = state === 'done' ? 100 : Math.min(96, Math.round(((Math.max(0, pass - 1) + within) / maxPasses) * 100));
     try {
       deps.db
         .prepare('UPDATE opportunity SET brief_state=?, brief_progress=?, detail=?, brief_started_at=COALESCE(brief_started_at,?), updated_at=? WHERE id=?')
-        .run(state, pct, `${activity}  ·  ${searches} recherches, ${reads} lectures`, startIso, new Date().toISOString(), r.id);
+        .run(state, pct, `Passe ${pass}/${maxPasses} · ${activity}  ·  ${searches} recherches, ${reads} lectures`, startIso, new Date().toISOString(), r.id);
     } catch {
       /* trace best-effort */
     }
   };
-  update();
-  // Cumulative deepening: a re-run ("Approfondir") builds on the prior findings and targets the
-  // still-open unknowns, so each pass resolves more and the prompt quality climbs.
-  const prior = (() => {
+  // Cumulative accumulation of concrete findings across every auto-loop pass.
+  const accFindings: string[] = [];
+  const seenFinding = new Set<string>();
+  const addFindings = (xs?: string[]): void => { for (const x of xs ?? []) { const k = (x ?? '').trim(); if (k && !seenFinding.has(k)) { seenFinding.add(k); accFindings.push(k); } } };
+  let openUnknowns: string[] = (() => {
     try {
       const p = JSON.parse(r.feasibility_json || '') as { concreteFindings?: string[]; unknowns?: string[] };
-      return { findings: p.concreteFindings ?? [], unknowns: p.unknowns ?? [] };
+      addFindings(p.concreteFindings);
+      return p.unknowns ?? [];
     } catch {
-      return undefined;
+      return [];
     }
   })();
-  const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), prior, r.brief_steer), {
-    allowedTools: ['WebSearch', 'WebFetch'],
-    maxBudgetUsd: deps.cfg.PER_BRIEF_BUDGET_USD,
-    onMessage: (msg) => {
-      if (msg.type === 'assistant') turns += 1;
-      const t = traceFromMsg(msg);
-      if (t) {
-        if (t.startsWith('Recherche')) searches += 1;
-        else if (t.startsWith('Lecture')) reads += 1;
-        activity = t;
-      }
-      update();
-    },
-  });
-  const f = parseJsonLoose<Feasibility>(fres.text);
+  // AUTO-LOOP: keep investigating (each pass builds on prior findings + targets open BLOCKING unknowns)
+  // until zero blockers remain (READY), or no progress, or passes/budget exhausted. No manual re-clicking.
+  let f: Feasibility | undefined;
+  let prevBlockers = Number.POSITIVE_INFINITY;
+  while (pass < maxPasses && briefSpent < totalBudget) {
+    pass += 1;
+    turns = 0; searches = 0; reads = 0;
+    activity = pass === 1 ? 'Investigation profonde…' : 'Approfondissement automatique…';
+    update();
+    const perPass = Math.min(deps.cfg.PER_BRIEF_BUDGET_USD, totalBudget - briefSpent);
+    const fres = await runSie(deps, rs, 'feasibility', feasibilityPrompt({ title: r.title, thesis: r.thesis ?? '', whyNow: r.why_now ?? '', fit: r.fit ?? '' }, sources.map((s) => s.url).join(' '), { findings: accFindings, unknowns: openUnknowns }, r.brief_steer), {
+      allowedTools: ['WebSearch', 'WebFetch'],
+      maxBudgetUsd: perPass,
+      onMessage: (msg) => {
+        if (msg.type === 'assistant') turns += 1;
+        const t = traceFromMsg(msg);
+        if (t) {
+          if (t.startsWith('Recherche')) searches += 1;
+          else if (t.startsWith('Lecture')) reads += 1;
+          activity = t;
+        }
+        update();
+      },
+    });
+    briefSpent += fres.costUsd;
+    const parsed = parseJsonLoose<Feasibility>(fres.text);
+    if (!parsed || !parsed.recommendation) {
+      if (!f) { activity = 'Investigation sans résultat exploitable - réessaie.'; update('failed'); return false; }
+      break; // a later pass produced nothing usable -> keep the last good pass
+    }
+    addFindings(parsed.concreteFindings);
+    f = { ...parsed, concreteFindings: accFindings.slice() };
+    const blockers = (parsed.unknowns ?? []).length;
+    if (blockers === 0) break;            // READY: nothing left to resolve from research
+    if (blockers >= prevBlockers) break;  // no progress this pass -> stop pushing
+    prevBlockers = blockers;
+    openUnknowns = parsed.unknowns ?? [];
+  }
   if (!f || !f.recommendation) {
     activity = 'Investigation sans résultat exploitable - réessaie.';
     update('failed');
     return false;
   }
   activity = 'Rédaction et traduction du brief…';
-  turns = maxTurns;
+  turns = maxTurns; pass = maxPasses;
   update();
   const oppEn = { title: r.title, thesis: r.thesis, whyNow: r.why_now, fit: r.fit, sources };
   const maxPrompt = renderMaxPrompt(oppEn, f, r.score); // English (for the coding session)
   const deeperPrompt = renderDeeperPrompt(oppEn, f);
   // French brief for the owner to read.
-  const tr = await runSie(deps, rs, 'translate', translateFeasibilityPrompt({ verdict: f.verdict, concreteFindings: f.concreteFindings, unknowns: f.unknowns, approachSteps: f.approachSteps, dataModel: f.dataModel, outOfScope: f.outOfScope, acceptanceCriteria: f.acceptanceCriteria }));
+  const tr = await runSie(deps, rs, 'translate', translateFeasibilityPrompt({ verdict: f.verdict, concreteFindings: f.concreteFindings, unknowns: f.unknowns, fieldUnknowns: f.fieldUnknowns, approachSteps: f.approachSteps, dataModel: f.dataModel, outOfScope: f.outOfScope, acceptanceCriteria: f.acceptanceCriteria }));
   const fFr: Feasibility = { ...f, ...(parseJsonLoose<Partial<Feasibility>>(tr.text) ?? {}) };
   const oppFr = { title: r.title_fr || r.title, thesis: r.thesis, whyNow: r.why_now_fr || r.why_now, fit: r.fit, sources };
   const briefMd = renderBriefMd(oppFr, fFr, r.score);
   deps.db
     .prepare("UPDATE opportunity SET brief_md=?, max_prompt=?, deeper_prompt=?, feasibility_json=?, recommendation=?, unknowns_count=?, brief_state='done', brief_progress=100, detail=NULL, brief_started_at=NULL, brief_steer=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")
-    .run(briefMd, maxPrompt, deeperPrompt, JSON.stringify(f), f.recommendation, (f.unknowns ?? []).length, fres.costUsd, at, r.id);
+    .run(briefMd, maxPrompt, deeperPrompt, JSON.stringify(f), f.recommendation, (f.unknowns ?? []).length, briefSpent, at, r.id);
   return true;
 }
 

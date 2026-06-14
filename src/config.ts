@@ -29,7 +29,9 @@ const ConfigSchema = z.object({
   SIE_DAILY_CAP_USD: z.coerce.number().positive().default(20), // generous runaway-day backstop, never paces you
   SIE_RUN_BUDGET_USD: z.coerce.number().positive().default(1.5), // daily veille per-run abort (no Opus baked in)
   SIE_BRIEF_TOP_N: z.coerce.number().int().nonnegative().default(0), // NO auto-brief: the deep Opus brief only runs on YOUR greenlight
-  PER_BRIEF_BUDGET_USD: z.coerce.number().positive().default(3), // a DEEP investigation can spend more
+  PER_BRIEF_BUDGET_USD: z.coerce.number().positive().default(3), // per-pass cap for one feasibility pass
+  SIE_BRIEF_MAX_PASSES: z.coerce.number().int().positive().default(4), // auto-loop: keep digging until ready (or this many passes)
+  SIE_BRIEF_TOTAL_BUDGET_USD: z.coerce.number().positive().default(7), // hard ceiling across all auto-loop passes of one brief
 
   // Paths.
   DB_PATH: z.string().default('./autodev.db'),
