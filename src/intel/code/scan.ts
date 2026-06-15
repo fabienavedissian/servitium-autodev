@@ -38,7 +38,7 @@ const git = new LocalRunner();
 const SCAN_ROOT = process.env.AUTODEV_CODESCAN_DIR ?? '/opt/autodev/codescan';
 
 // Rotating repo list: one repo per daily code scan -> full coverage over a cycle, bounded cost.
-export const CODE_REPOS = ['servitium-api', 'servitium-center', 'servitium-portal', 'servitium-ui', 'servitium-electron-gui', 'servitium-discord', 'servitium-autodev'];
+export const CODE_REPOS = ['servitium-api', 'servitium-center', 'servitium-portal', 'servitium-ui', 'servitium-electron-gui', 'servitium-discord', 'servitium-autodev', 'servitium-shared'];
 
 // Live-progress mapping for the code scan (shown in the global activity dock).
 const CODE_STAGE_FR: Record<string, string> = { CLONE: 'Clonage du dépôt', DEPS: 'Dépendances', AUDIT: 'Audit du code', SCORE: 'Notation', TRANSLATE: 'Traduction' };
