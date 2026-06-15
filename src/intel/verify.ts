@@ -76,9 +76,9 @@ function renderIntegrationMd(title: string, score: number, complete: boolean, ve
 // (each pass re-confirms prior "done" + checks whether prior "missing" got fixed).
 export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promise<{ ok: boolean; score: number; complete: boolean }> {
   const r = deps.db
-    .prepare('SELECT id, COALESCE(title_fr,title) AS title_fr, title, feasibility_json, repo, integration_json, integration_branch FROM opportunity WHERE id=?')
+    .prepare('SELECT id, COALESCE(title_fr,title) AS title_fr, title, feasibility_json, repo, integration_json, integration_branch, integration_repo FROM opportunity WHERE id=?')
     .get(id) as
-    | { id: number; title_fr: string; title: string; feasibility_json: string | null; repo: string | null; integration_json: string | null; integration_branch: string | null }
+    | { id: number; title_fr: string; title: string; feasibility_json: string | null; repo: string | null; integration_json: string | null; integration_branch: string | null; integration_repo: string | null }
     | undefined;
   if (!r) return { ok: false, score: 0, complete: false };
   const at = new Date().toISOString();
@@ -91,7 +91,9 @@ export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promis
   } catch {
     /* no brief json */
   }
-  const repo = r.repo || APP_TO_REPO[brief.targetApp] || 'servitium-api';
+  // Owner-picked repo (from the dashboard repo dropdown) wins: the same feature branch can exist on
+  // several repos, so the opportunity's own repo guess isn't enough.
+  const repo = r.integration_repo || r.repo || APP_TO_REPO[brief.targetApp] || 'servitium-api';
 
   const startIso = at;
   let turns = 0;
@@ -110,7 +112,8 @@ export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promis
   update('verifying', `Clonage de ${repo}…`, 4);
   const dir = cloneForVerify(repo, deps.cfg, r.integration_branch || undefined);
   if (!dir) {
-    update('failed', `Impossible de cloner ${repo}. Pousse ton implémentation sur GitHub d'abord (branche par défaut, ou indique la branche).`, 0);
+    const where = r.integration_branch ? `${repo} (branche ${r.integration_branch})` : repo;
+    update('failed', `Impossible de cloner ${where}. Vérifie le repo et la branche choisis, et que c'est bien poussé sur GitHub.`, 0);
     return { ok: false, score: 0, complete: false };
   }
 

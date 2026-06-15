@@ -413,6 +413,16 @@ function readinessHTML(o) {
   const ic = r.level === 'ready' ? icon('check', 18) : r.level === 'discouraged' ? icon('x', 18) : icon('alert', 18);
   return `<div class="ready ready-${r.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(r.label)}${o.promptQuality != null ? `<span class="ready-pct">${o.promptQuality}%</span>` : ''}</div><div class="ready-msg">${esc(r.msg)}</div></div></div>`;
 }
+// Repo + branch pickers for the code audit: the same feature branch can live on several repos,
+// so the owner picks the repo (all repos) AND the branch (fetched live from GitHub) — no free text.
+function verifyPickerHTML() {
+  return `<div class="int-picker"><select data-int-repo><option value="">Repo…</option></select><select data-int-branch disabled><option value="">Branche…</option></select><button class="btn ok" data-verify-go disabled>Vérifier le code</button></div>`;
+}
+let REPOS_PROMISE = null;
+function loadRepos() {
+  if (!REPOS_PROMISE) REPOS_PROMISE = api('/github/repos').then((r) => (r && r.repos) || []).catch(() => []);
+  return REPOS_PROMISE;
+}
 // Post-integration follow-up: shown on a greenlit opp that already has a brief.
 function integrationHTML(o) {
   const greenlit = o.status === 'greenlit' || o.status === 'accepted';
@@ -424,9 +434,9 @@ function integrationHTML(o) {
   if (o.integration) {
     const v = o.integration;
     const ic = v.level === 'ready' ? icon('check', 18) : v.level === 'discouraged' ? icon('x', 18) : icon('alert', 18);
-    return `<div class="ready ready-${v.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(v.label)}</div><div class="ready-msg">${esc(v.msg)}</div></div></div><div class="int-actions"><button class="btn ghost" data-view-integration>Voir le rapport d'audit</button>${v.level === 'blocked' ? `<button class="btn ok" data-copy-finish>Copier le prompt de finition</button>` : ''}<button class="btn ghost" data-verify title="ré-audite le code après tes correctifs">Re-vérifier</button></div><div class="int-zone"></div>`;
+    return `<div class="ready ready-${v.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(v.label)}</div><div class="ready-msg">${esc(v.msg)}</div></div></div><div class="int-actions"><button class="btn ghost" data-view-integration>Voir le rapport d'audit</button>${v.level === 'blocked' ? `<button class="btn ok" data-copy-finish>Copier le prompt de finition</button>` : ''}<button class="btn ghost" data-reverify title="ré-audite le code après tes correctifs">Re-vérifier</button></div><div class="int-pickzone"></div><div class="int-zone"></div>`;
   }
-  return `<div class="int-head">${icon('code', 15)} Tu l'as implémenté ?</div><div class="muted small">Le moteur audite le code réel (sur GitHub) face aux critères d'acceptation, te dit ce qui manque et te donne un prompt de finition — jusqu'à 100%.</div><div class="int-start"><input type="text" data-int-branch placeholder="branche GitHub (optionnel, défaut : principale)"><button class="btn ok" data-verify>Marquer comme intégré — vérifier le code</button></div>`;
+  return `<div class="int-head">${icon('code', 15)} Tu l'as implémenté ?</div><div class="muted small">Le moteur audite le code réel (sur GitHub) face aux critères d'acceptation, te dit ce qui manque et te donne un prompt de finition — jusqu'à 100%. Choisis le repo et la branche.</div>${verifyPickerHTML()}`;
 }
 function briefActionsHTML(o) {
   if (o.brief_state === 'running') {
@@ -502,14 +512,46 @@ function wireBriefActions(card) {
     zone.innerHTML = `<div class="brief-doc">${d.brief_md ? renderMarkdown(d.brief_md) : '(pas de brief)'}</div>`; zone.dataset.open = '1';
   });
 }
+async function wireVerifyPicker(scope, id) {
+  const repoSel = scope.querySelector('[data-int-repo]');
+  const brSel = scope.querySelector('[data-int-branch]');
+  const go = scope.querySelector('[data-verify-go]');
+  if (!repoSel || !brSel || !go) return;
+  const updateGo = () => { go.disabled = !(repoSel.value && brSel.value); };
+  const repos = await loadRepos();
+  repoSel.innerHTML = '<option value="">Repo…</option>' + repos.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  repoSel.addEventListener('change', async () => {
+    brSel.disabled = true; go.disabled = true; brSel.innerHTML = '<option value="">…</option>';
+    if (!repoSel.value) { brSel.innerHTML = '<option value="">Branche…</option>'; return; }
+    const r = await api('/github/branches?repo=' + encodeURIComponent(repoSel.value));
+    const branches = (r && r.branches) || [];
+    brSel.innerHTML = branches.length
+      ? '<option value="">Branche…</option>' + branches.map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join('')
+      : '<option value="">aucune branche trouvée</option>';
+    brSel.disabled = branches.length === 0;
+    updateGo();
+  });
+  brSel.addEventListener('change', updateGo);
+  go.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!repoSel.value || !brSel.value) { toast('Choisis un repo et une branche.', 'error'); return; }
+    go.disabled = true;
+    const r = await api(`/opportunities/${id}/verify-integration`, { method: 'POST', body: JSON.stringify({ repo: repoSel.value, branch: brSel.value }) });
+    if (r && r.error) { toast(r.error, 'error'); go.disabled = false; }
+    else toast('Vérification lancée — audit du code en direct.', 'success');
+  });
+}
 function wireIntegration(card) {
   const id = card.dataset.id;
-  card.querySelector('[data-verify]')?.addEventListener('click', async (e) => {
+  if (card.querySelector('.int-picker')) wireVerifyPicker(card, id);
+  card.querySelector('[data-reverify]')?.addEventListener('click', async (e) => {
     e.stopPropagation();
-    const branch = card.querySelector('[data-int-branch]')?.value.trim() || '';
-    const r = await api(`/opportunities/${id}/verify-integration`, { method: 'POST', body: JSON.stringify({ branch }) });
-    if (r && r.error) toast(r.error, 'error');
-    else toast('Vérification lancée — audit du code en direct.', 'success');
+    const z = card.querySelector('.int-pickzone');
+    if (!z) return;
+    if (z.dataset.open) { z.innerHTML = ''; z.dataset.open = ''; return; }
+    z.innerHTML = verifyPickerHTML();
+    z.dataset.open = '1';
+    await wireVerifyPicker(z, id);
   });
   card.querySelector('[data-copy-finish]')?.addEventListener('click', async () => {
     const d = await api(`/opportunities/${id}`);

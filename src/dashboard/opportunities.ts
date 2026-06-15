@@ -188,7 +188,7 @@ function integrationVerdictOf(state: string | null, score: number | null): Recor
   if (!state) return null;
   if (state === 'complete') return { ready: true, level: 'ready', label: 'Intégration validée', msg: `Tout est en place (${score ?? 100}/100). Tu peux clôturer en confiance.` };
   if (state === 'gaps') return { ready: false, level: 'blocked', label: `Intégré à ${score ?? 0}%`, msg: 'Il reste des points à finir. Copie le prompt de finition, implémente-les sur Max, pousse, puis re-vérifie.' };
-  if (state === 'failed') return { ready: false, level: 'discouraged', label: 'Vérification échouée', msg: 'Le code n’a pas pu être audité (pas poussé sur GitHub ?). Relance la vérification.' };
+  if (state === 'failed') return { ready: false, level: 'discouraged', label: 'Vérification échouée', msg: 'Le code n’a pas pu être audité. Clique « Re-vérifier », choisis le bon repo et la branche, et relance.' };
   return null; // 'verifying' -> shown via the live progress bar instead
 }
 

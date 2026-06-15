@@ -9,6 +9,7 @@ import { createLogger } from '../log';
 import { spawn } from 'child_process';
 import { tasksByState, costSince, recentRuns, runDetail, addComment } from './queries';
 import { listProposals, decideProposal, proposalCounts, type ProposalStatus } from './proposals';
+import { loadGithub, type GithubClient } from '../github/client';
 import { listOpportunities, opportunityDetail, decideOpportunity, sieOverview, logbookFeed, addLogbookNote, recentSenseRuns, signalsFeed, notRetained, listReports, reportDetail, activeJobs, type DecideAction } from './opportunities';
 
 const cfg = loadConfig();
@@ -17,6 +18,13 @@ const db = openDb(cfg.DB_PATH);
 const PORT = Number(process.env.DASH_PORT ?? 8787);
 const SECRET = cfg.DASH_SESSION_SECRET || 'dev-insecure-secret-change-me';
 const WEB = path.join(process.cwd(), 'src', 'dashboard', 'web');
+
+// Lazy, single-flight GitHub client for the repo/branch pickers (octokit is ESM, loaded on first use).
+let _ghPromise: Promise<GithubClient> | null = null;
+const github = (): Promise<GithubClient> => {
+  if (!_ghPromise) _ghPromise = loadGithub(cfg.GITHUB_PAT ?? '', cfg.GITHUB_ORG ?? '');
+  return _ghPromise;
+};
 
 const sign = (v: string): string => crypto.createHmac('sha256', SECRET).update(v).digest('hex');
 const makeSession = (): string => {
@@ -207,6 +215,22 @@ const server = http.createServer(async (req, res) => {
       child.unref();
       return send(res, 200, { ok: true, started: true });
     }
+    if (p === '/api/github/repos') {
+      try {
+        return send(res, 200, { repos: await (await github()).listRepos() });
+      } catch {
+        return send(res, 200, { repos: [] });
+      }
+    }
+    if (p === '/api/github/branches') {
+      const repo = String(url.searchParams.get('repo') ?? '').trim();
+      if (!repo) return send(res, 400, { error: 'repo required' });
+      try {
+        return send(res, 200, { branches: await (await github()).listBranches(repo) });
+      } catch {
+        return send(res, 200, { branches: [] });
+      }
+    }
     const oppVerify = /^\/api\/opportunities\/(\d+)\/verify-integration$/.exec(p);
     if (oppVerify && req.method === 'POST') {
       const id = Number(oppVerify[1]);
@@ -215,7 +239,8 @@ const server = http.createServer(async (req, res) => {
       if (intelCapped) return send(res, 429, { error: capMsg });
       const vbody = await readBody(req);
       const branch = String(vbody.branch ?? '').trim().slice(0, 120) || null;
-      db.prepare("UPDATE opportunity SET integration_state='verifying', integration_progress=0, integration_started_at=NULL, integration_branch=?, integration_detail='Lancement de la verification...', updated_at=? WHERE id=?").run(branch, now.toISOString(), id);
+      const repo = String(vbody.repo ?? '').trim().slice(0, 80) || null;
+      db.prepare("UPDATE opportunity SET integration_state='verifying', integration_progress=0, integration_started_at=NULL, integration_branch=?, integration_repo=?, integration_detail='Lancement de la verification...', updated_at=? WHERE id=?").run(branch, repo, now.toISOString(), id);
       const child = spawn(process.execPath, ['--max-old-space-size=2048', 'dist/scripts/verify-integration.js', String(id)], { cwd: process.cwd(), detached: true, stdio: 'ignore', env: process.env });
       child.unref();
       return send(res, 200, { ok: true, started: true });

@@ -509,6 +509,11 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .int-start input { flex: 1; min-width: 200px; padding: 9px 12px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font-size: var(--fs-sm); }
 .int-start input:focus { border-color: var(--accent); }
 .int-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.int-picker { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.int-picker select { padding: 9px 12px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font-size: var(--fs-sm); max-width: 240px; }
+.int-picker select:focus { border-color: var(--accent); }
+.int-picker select:disabled { opacity: .55; }
+.int-pickzone:not(:empty) { margin-top: 10px; }
 .int-zone:not(:empty) { margin-top: 10px; }
 .job-card.t-verify { border-left-color: var(--info); }
 .ic { vertical-align: -.18em; }

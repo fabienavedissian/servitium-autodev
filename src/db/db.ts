@@ -49,6 +49,7 @@ function migrate(db: DB): void {
   ensureColumn(db, 'opportunity', 'integration_detail', 'TEXT');
   ensureColumn(db, 'opportunity', 'integration_started_at', 'TEXT');
   ensureColumn(db, 'opportunity', 'integration_branch', 'TEXT'); // optional branch to audit (default: repo default)
+  ensureColumn(db, 'opportunity', 'integration_repo', 'TEXT'); // owner-picked repo to audit (default: opportunity repo)
   // Key-value store for the auto-refreshed dossier + the learned per-kind ranking bias.
   db.exec('CREATE TABLE IF NOT EXISTS sie_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)');
   // Live veille progress, shown in the dashboard while a run is in flight.
