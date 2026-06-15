@@ -509,8 +509,12 @@ pre.diff .ddel { color: #ff8fa3; background: rgba(255,107,129,0.08); display: bl
 .int-start input { flex: 1; min-width: 200px; padding: 9px 12px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font-size: var(--fs-sm); }
 .int-start input:focus { border-color: var(--accent); }
 .int-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-.int-picker { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
-.int-picker select { padding: 9px 12px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font-size: var(--fs-sm); max-width: 240px; }
+.int-picker { margin-top: 10px; }
+.int-repos { display: flex; flex-wrap: wrap; gap: 6px 16px; max-height: 168px; overflow: auto; padding: 9px 11px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.int-repo { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); white-space: nowrap; cursor: pointer; }
+.int-repo input { cursor: pointer; }
+.int-picker-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.int-picker select { padding: 9px 12px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--txt); outline: none; font-size: var(--fs-sm); max-width: 280px; }
 .int-picker select:focus { border-color: var(--accent); }
 .int-picker select:disabled { opacity: .55; }
 .int-pickzone:not(:empty) { margin-top: 10px; }

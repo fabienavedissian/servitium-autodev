@@ -145,16 +145,21 @@ export function verifyIntegrationPrompt(
   opp: { title: string; targetApp: string },
   brief: { acceptanceCriteria: string[]; approachSteps: string[]; concreteFindings: string[] },
   prior?: { done: string[]; missing: string[] },
+  repos?: string[],
 ): string {
   const priorBlock = prior && (prior.done.length || prior.missing.length)
     ? `A PRIOR audit already verified these as DONE (re-confirm quickly, then focus on the rest):\n${prior.done.map((x) => `- ${x}`).join('\n')}\n\nThese were MISSING/incorrect last time - check whether they are now fixed:\n${prior.missing.map((x) => `- ${x}`).join('\n')}`
     : '';
+  const multi = (repos?.length ?? 0) > 1;
+  const layout = multi
+    ? `The feature SPANS MULTIPLE repos. Your working dir holds ONE SUBDIRECTORY PER REPO: ${repos!.join(', ')}. Read across ALL of them — a criterion may be satisfied by code in any of these repos (e.g. API in servitium-api, UI in servitium-center/portal).`
+    : `you are in the repo root with read-only tools`;
   return [
     `You are a STRICT senior code reviewer. The owner says they have IMPLEMENTED this Servitium feature. Read the ACTUAL`,
-    `code in this repo (you are in the repo root with read-only tools) and judge HONESTLY how complete and correct the`,
+    `code (${layout}) and judge HONESTLY how complete and correct the`,
     `implementation is against the acceptance criteria. Do NOT trust claims - verify in the real files (grep/read).`,
     priorBlock,
-    `Feature: ${opp.title}\nTarget app: ${opp.targetApp}`,
+    `Feature: ${opp.title}\nTarget app(s): ${multi ? repos!.join(', ') : opp.targetApp}`,
     `Acceptance criteria (each must be objectively met in the code):\n${(brief.acceptanceCriteria ?? []).map((x) => `- ${x}`).join('\n') || '- (none specified - infer from the approach)'}`,
     `Intended approach (reference):\n${(brief.approachSteps ?? []).map((x) => `- ${x}`).join('\n')}`,
     `For EACH acceptance criterion, find the code that satisfies it (cite file:line) or mark it missing. Also check Servitium`,

@@ -19,7 +19,7 @@ export interface GithubClient {
 // so the dashboard repo picker is never empty.
 const KNOWN_REPOS = [
   'servitium-api', 'servitium-center', 'servitium-portal', 'servitium-ui',
-  'servitium-electron-gui', 'servitium-discord', 'servitium-shared', 'servitium-autodev',
+  'servitium-gui', 'servitium-game', 'servitium-discord', 'servitium-shared', 'servitium-autodev',
 ];
 
 // octokit is ESM-only -> loaded via the dynamic-import seam. PAT is scoped to servitium-api with
@@ -52,7 +52,9 @@ export async function loadGithub(pat: string, org: string): Promise<GithubClient
         for (let page = 1; page <= 5; page += 1) {
           const r = await kit.rest.repos.listForAuthenticatedUser({ per_page: 100, page, affiliation: 'owner', sort: 'full_name' });
           for (const repo of r.data) {
-            if (!org || (repo.owner?.login ?? '').toLowerCase() === org.toLowerCase()) out.push(repo.name);
+            const ownerOk = !org || (repo.owner?.login ?? '').toLowerCase() === org.toLowerCase();
+            // Only the Servitium projects — the account also holds unrelated repos.
+            if (ownerOk && repo.name.startsWith('servitium-')) out.push(repo.name);
           }
           if (r.data.length < 100) break;
         }

@@ -416,7 +416,7 @@ function readinessHTML(o) {
 // Repo + branch pickers for the code audit: the same feature branch can live on several repos,
 // so the owner picks the repo (all repos) AND the branch (fetched live from GitHub) — no free text.
 function verifyPickerHTML() {
-  return `<div class="int-picker"><select data-int-repo><option value="">Repo…</option></select><select data-int-branch disabled><option value="">Branche…</option></select><button class="btn ok" data-verify-go disabled>Vérifier le code</button></div>`;
+  return `<div class="int-picker"><div class="int-repos" data-int-repos><span class="muted small">Chargement des projets…</span></div><div class="int-picker-row"><select data-int-branch disabled><option value="">Branche…</option></select><button class="btn ok" data-verify-go disabled>Vérifier le code</button></div></div>`;
 }
 let REPOS_PROMISE = null;
 function loadRepos() {
@@ -436,7 +436,7 @@ function integrationHTML(o) {
     const ic = v.level === 'ready' ? icon('check', 18) : v.level === 'discouraged' ? icon('x', 18) : icon('alert', 18);
     return `<div class="ready ready-${v.level}"><div class="ready-ico">${ic}</div><div class="ready-body"><div class="ready-label">${esc(v.label)}</div><div class="ready-msg">${esc(v.msg)}</div></div></div><div class="int-actions"><button class="btn ghost" data-view-integration>Voir le rapport d'audit</button>${v.level === 'blocked' ? `<button class="btn ok" data-copy-finish>Copier le prompt de finition</button>` : ''}<button class="btn ghost" data-reverify title="ré-audite le code après tes correctifs">Re-vérifier</button></div><div class="int-pickzone"></div><div class="int-zone"></div>`;
   }
-  return `<div class="int-head">${icon('code', 15)} Tu l'as implémenté ?</div><div class="muted small">Le moteur audite le code réel (sur GitHub) face aux critères d'acceptation, te dit ce qui manque et te donne un prompt de finition — jusqu'à 100%. Choisis le repo et la branche.</div>${verifyPickerHTML()}`;
+  return `<div class="int-head">${icon('code', 15)} Tu l'as implémenté ?</div><div class="muted small">Le moteur audite le code réel (sur GitHub) face aux critères d'acceptation, te dit ce qui manque et te donne un prompt de finition — jusqu'à 100%. Coche le(s) projet(s) concerné(s) et la branche commune.</div>${verifyPickerHTML()}`;
 }
 function briefActionsHTML(o) {
   if (o.brief_state === 'running') {
@@ -513,30 +513,45 @@ function wireBriefActions(card) {
   });
 }
 async function wireVerifyPicker(scope, id) {
-  const repoSel = scope.querySelector('[data-int-repo]');
+  const box = scope.querySelector('[data-int-repos]');
   const brSel = scope.querySelector('[data-int-branch]');
   const go = scope.querySelector('[data-verify-go]');
-  if (!repoSel || !brSel || !go) return;
-  const updateGo = () => { go.disabled = !(repoSel.value && brSel.value); };
+  if (!box || !brSel || !go) return;
+  const branchCache = {};
+  const getBranches = (repo) => {
+    if (!branchCache[repo]) branchCache[repo] = api('/github/branches?repo=' + encodeURIComponent(repo)).then((r) => (r && r.branches) || []).catch(() => []);
+    return branchCache[repo];
+  };
+  const checked = () => Array.from(box.querySelectorAll('input:checked')).map((c) => c.value);
+  const updateGo = () => { go.disabled = !(checked().length && brSel.value); };
   const repos = await loadRepos();
-  repoSel.innerHTML = '<option value="">Repo…</option>' + repos.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
-  repoSel.addEventListener('change', async () => {
-    brSel.disabled = true; go.disabled = true; brSel.innerHTML = '<option value="">…</option>';
-    if (!repoSel.value) { brSel.innerHTML = '<option value="">Branche…</option>'; return; }
-    const r = await api('/github/branches?repo=' + encodeURIComponent(repoSel.value));
-    const branches = (r && r.branches) || [];
-    brSel.innerHTML = branches.length
-      ? '<option value="">Branche…</option>' + branches.map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join('')
-      : '<option value="">aucune branche trouvée</option>';
-    brSel.disabled = branches.length === 0;
+  box.innerHTML = repos.length
+    ? repos.map((r) => `<label class="int-repo"><input type="checkbox" value="${esc(r)}">${esc(r)}</label>`).join('')
+    : '<span class="muted small">Aucun projet trouvé.</span>';
+  // The same feature branch can live on several repos -> only offer branches common to ALL checked repos.
+  const refreshBranches = async () => {
+    const sel = checked();
+    const cur = brSel.value;
+    brSel.disabled = true; go.disabled = true;
+    if (!sel.length) { brSel.innerHTML = '<option value="">Branche…</option>'; return; }
+    brSel.innerHTML = '<option value="">…</option>';
+    const lists = await Promise.all(sel.map(getBranches));
+    let common = lists[0] || [];
+    for (let i = 1; i < lists.length; i += 1) common = common.filter((b) => lists[i].includes(b));
+    brSel.innerHTML = common.length
+      ? '<option value="">Branche commune…</option>' + common.map((b) => `<option value="${esc(b)}"${b === cur ? ' selected' : ''}>${esc(b)}</option>`).join('')
+      : '<option value="">aucune branche commune aux projets cochés</option>';
+    brSel.disabled = common.length === 0;
     updateGo();
-  });
+  };
+  box.addEventListener('change', refreshBranches);
   brSel.addEventListener('change', updateGo);
   go.addEventListener('click', async (e) => {
     e.stopPropagation();
-    if (!repoSel.value || !brSel.value) { toast('Choisis un repo et une branche.', 'error'); return; }
+    const sel = checked();
+    if (!sel.length || !brSel.value) { toast('Coche au moins un projet et choisis la branche.', 'error'); return; }
     go.disabled = true;
-    const r = await api(`/opportunities/${id}/verify-integration`, { method: 'POST', body: JSON.stringify({ repo: repoSel.value, branch: brSel.value }) });
+    const r = await api(`/opportunities/${id}/verify-integration`, { method: 'POST', body: JSON.stringify({ repos: sel, branch: brSel.value }) });
     if (r && r.error) { toast(r.error, 'error'); go.disabled = false; }
     else toast('Vérification lancée — audit du code en direct.', 'success');
   });

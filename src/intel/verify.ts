@@ -41,25 +41,28 @@ const APP_TO_REPO: Record<string, string> = {
   autodev: 'servitium-autodev', 'servitium-autodev': 'servitium-autodev',
 };
 
-// Fresh clone into an isolated dir so it never clashes with the rotating code-scan checkout.
-function cloneForVerify(repo: string, cfg: Config, branch?: string): string | null {
-  const dir = path.join(VERIFY_ROOT, repo);
+// Clone one repo into a per-opportunity parent dir (one subdir per repo) so a multi-repo feature
+// can be audited across all of them at once. The agent runs with cwd = the parent.
+function cloneInto(parent: string, repo: string, cfg: Config, branch?: string): boolean {
+  const dir = path.join(parent, repo);
   const url = `https://x-access-token:${cfg.GITHUB_PAT}@github.com/${cfg.GITHUB_ORG}/${repo}.git`;
   try {
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(VERIFY_ROOT, { recursive: true });
     const args = branch ? ['clone', '--depth', '1', '--branch', branch, url, dir] : ['clone', '--depth', '1', url, dir];
-    const r = git.run('git', args, { cwd: VERIFY_ROOT, timeoutMs: 180_000 });
-    return r.exitCode === 0 ? dir : null;
+    const r = git.run('git', args, { cwd: parent, timeoutMs: 180_000 });
+    return r.exitCode === 0;
   } catch {
-    return null;
+    return false;
   }
 }
 
-function renderIntegrationMd(title: string, score: number, complete: boolean, verdict: string, done: string[], missing: string[]): string {
+function renderIntegrationMd(title: string, score: number, complete: boolean, verdict: string, done: string[], missing: string[], cloned: string[] = [], failedClone: string[] = []): string {
+  const reposLine = cloned.length
+    ? `Repos audités : ${cloned.join(', ')}${failedClone.length ? ` · Non clonés (branche absente ?) : ${failedClone.join(', ')}` : ''}`
+    : '';
   return [
     `# Vérification d'intégration — ${title}`,
     `**Complétude : ${score}/100**${complete ? ' · Prêt à clôturer' : ' · Il reste des points à finir'}`,
+    ...(reposLine ? [reposLine] : []),
     ``,
     `## Verdict`,
     verdict || '(n/a)',
@@ -76,9 +79,9 @@ function renderIntegrationMd(title: string, score: number, complete: boolean, ve
 // (each pass re-confirms prior "done" + checks whether prior "missing" got fixed).
 export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promise<{ ok: boolean; score: number; complete: boolean }> {
   const r = deps.db
-    .prepare('SELECT id, COALESCE(title_fr,title) AS title_fr, title, feasibility_json, repo, integration_json, integration_branch, integration_repo FROM opportunity WHERE id=?')
+    .prepare('SELECT id, COALESCE(title_fr,title) AS title_fr, title, feasibility_json, repo, integration_json, integration_branch, integration_repo, integration_repos FROM opportunity WHERE id=?')
     .get(id) as
-    | { id: number; title_fr: string; title: string; feasibility_json: string | null; repo: string | null; integration_json: string | null; integration_branch: string | null; integration_repo: string | null }
+    | { id: number; title_fr: string; title: string; feasibility_json: string | null; repo: string | null; integration_json: string | null; integration_branch: string | null; integration_repo: string | null; integration_repos: string | null }
     | undefined;
   if (!r) return { ok: false, score: 0, complete: false };
   const at = new Date().toISOString();
@@ -91,9 +94,18 @@ export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promis
   } catch {
     /* no brief json */
   }
-  // Owner-picked repo (from the dashboard repo dropdown) wins: the same feature branch can exist on
-  // several repos, so the opportunity's own repo guess isn't enough.
-  const repo = r.integration_repo || r.repo || APP_TO_REPO[brief.targetApp] || 'servitium-api';
+  // Owner-picked repos (dashboard checkboxes) win: the same feature branch can span several repos,
+  // so audit them all at once. Fall back to the single pick / opportunity guess.
+  let repos: string[] = [];
+  try {
+    const arr = JSON.parse(r.integration_repos || '[]');
+    if (Array.isArray(arr)) repos = arr.filter((x): x is string => typeof x === 'string' && !!x);
+  } catch {
+    /* no repos json */
+  }
+  if (!repos.length) repos = [r.integration_repo || r.repo || APP_TO_REPO[brief.targetApp] || 'servitium-api'];
+  repos = Array.from(new Set(repos));
+  const repoLabel = repos.join(', ');
 
   const startIso = at;
   let turns = 0;
@@ -109,13 +121,26 @@ export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promis
     }
   };
 
-  update('verifying', `Clonage de ${repo}…`, 4);
-  const dir = cloneForVerify(repo, deps.cfg, r.integration_branch || undefined);
-  if (!dir) {
-    const where = r.integration_branch ? `${repo} (branche ${r.integration_branch})` : repo;
-    update('failed', `Impossible de cloner ${where}. Vérifie le repo et la branche choisis, et que c'est bien poussé sur GitHub.`, 0);
+  update('verifying', `Clonage de ${repoLabel}…`, 4);
+  const parent = path.join(VERIFY_ROOT, String(id));
+  try {
+    fs.rmSync(parent, { recursive: true, force: true });
+    fs.mkdirSync(parent, { recursive: true });
+  } catch {
+    /* best-effort */
+  }
+  const cloned: string[] = [];
+  const failedClone: string[] = [];
+  for (const rp of repos) {
+    if (cloneInto(parent, rp, deps.cfg, r.integration_branch || undefined)) cloned.push(rp);
+    else failedClone.push(rp);
+  }
+  if (!cloned.length) {
+    const where = r.integration_branch ? `${repoLabel} (branche ${r.integration_branch})` : repoLabel;
+    update('failed', `Impossible de cloner ${where}. Vérifie les repos et la branche choisis, et que c'est bien poussé sur GitHub.`, 0);
     return { ok: false, score: 0, complete: false };
   }
+  const dir = parent;
 
   let prior: { done: string[]; missing: string[] } | undefined;
   try {
@@ -125,12 +150,12 @@ export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promis
     /* first pass */
   }
 
-  update('verifying', `Audit du code de ${repo}…`, 12);
+  update('verifying', `Audit du code de ${cloned.join(', ')}…`, 12);
   const cfgRole = { name: 'verifier', ...SIE_ROLES.verifier };
   const res = await runRole(deps.query, {
     role: cfgRole,
     prompt: 'Audit the implemented code against the acceptance criteria. Output ONLY the specified JSON.',
-    systemPrompt: verifyIntegrationPrompt({ title: r.title, targetApp: brief.targetApp || repo }, brief, prior),
+    systemPrompt: verifyIntegrationPrompt({ title: r.title, targetApp: brief.targetApp || cloned[0] }, brief, prior, cloned),
     settingSources: [],
     cwd: dir,
     allowedTools: ['Read', 'Grep', 'Glob'],
@@ -166,7 +191,7 @@ export async function runVerifyIntegration(deps: VerifyDeps, id: number): Promis
   deps.ledger.record(trCfg.model, { input_tokens: 0, output_tokens: 0 }, { costUsd: trCost, scope: 'intel' });
   const fr = parseJsonLoose<{ verdict?: string; done?: string[]; missing?: string[] }>(tr.text) ?? {};
 
-  const md = renderIntegrationMd(r.title_fr || r.title, v.integrationScore, !!v.isComplete, fr.verdict ?? v.verdict, fr.done ?? merged.done, fr.missing ?? (v.missing ?? []));
+  const md = renderIntegrationMd(r.title_fr || r.title, v.integrationScore, !!v.isComplete, fr.verdict ?? v.verdict, fr.done ?? merged.done, fr.missing ?? (v.missing ?? []), cloned, failedClone);
   const state = v.isComplete ? 'complete' : 'gaps';
   deps.db
     .prepare("UPDATE opportunity SET integration_state=?, integration_score=?, integration_md=?, integration_prompt=?, integration_json=?, integration_progress=100, integration_detail=NULL, integration_started_at=NULL, spent_usd=spent_usd+?, updated_at=? WHERE id=?")

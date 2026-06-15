@@ -239,8 +239,12 @@ const server = http.createServer(async (req, res) => {
       if (intelCapped) return send(res, 429, { error: capMsg });
       const vbody = await readBody(req);
       const branch = String(vbody.branch ?? '').trim().slice(0, 120) || null;
-      const repo = String(vbody.repo ?? '').trim().slice(0, 80) || null;
-      db.prepare("UPDATE opportunity SET integration_state='verifying', integration_progress=0, integration_started_at=NULL, integration_branch=?, integration_repo=?, integration_detail='Lancement de la verification...', updated_at=? WHERE id=?").run(branch, repo, now.toISOString(), id);
+      let repos: string[] = [];
+      if (Array.isArray(vbody.repos)) repos = vbody.repos.map((x) => String(x).trim()).filter(Boolean);
+      else if (vbody.repo) { const one = String(vbody.repo).trim(); if (one) repos = [one]; }
+      repos = Array.from(new Set(repos)).slice(0, 12);
+      const reposJson = repos.length ? JSON.stringify(repos) : null;
+      db.prepare("UPDATE opportunity SET integration_state='verifying', integration_progress=0, integration_started_at=NULL, integration_branch=?, integration_repo=?, integration_repos=?, integration_detail='Lancement de la verification...', updated_at=? WHERE id=?").run(branch, repos[0] ?? null, reposJson, now.toISOString(), id);
       const child = spawn(process.execPath, ['--max-old-space-size=2048', 'dist/scripts/verify-integration.js', String(id)], { cwd: process.cwd(), detached: true, stdio: 'ignore', env: process.env });
       child.unref();
       return send(res, 200, { ok: true, started: true });
