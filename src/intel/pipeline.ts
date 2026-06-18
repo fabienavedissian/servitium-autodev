@@ -215,8 +215,11 @@ export async function runVeille(deps: VeilleDeps): Promise<VeilleSummary> {
       // These teach the engine what NOT to re-propose - the lightweight learning loop.
       const rejected = (deps.db.prepare("SELECT COALESCE(title_fr,title) AS t, comment FROM opportunity WHERE status='rejected' ORDER BY (decided_at IS NULL), decided_at DESC LIMIT 30").all() as { t: string; comment: string | null }[]).map((r) => (r.comment ? `${r.t} (raison: ${r.comment})` : r.t));
       const ownerExists = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('can','did') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
+      // Shipped features: closed opportunities that are DONE (built + live). Injected into avoid so
+      // the ideator never re-proposes them as new ideas.
+      const doneTitles = (deps.db.prepare("SELECT COALESCE(title_fr,title) AS t FROM opportunity WHERE status='done' ORDER BY decided_at DESC LIMIT 50").all() as { t: string }[]).map((r) => `${r.t} (ALREADY SHIPPED — feature is live, do not re-propose)`);
       const ownerWants = (deps.db.prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('want','note') ORDER BY id DESC LIMIT 20").all() as { summary: string }[]).map((r) => r.summary);
-      const i = await runSie(deps, rs, 'ideator', ideatePrompt(ideaSignals, openTitles, [...rejected, ...ownerExists], ownerWants));
+      const i = await runSie(deps, rs, 'ideator', ideatePrompt(ideaSignals, openTitles, [...rejected, ...ownerExists, ...doneTitles], ownerWants));
       const cand = parseJsonLoose<{ opportunities?: IdeaOpp[] }>(i.text)?.opportunities ?? [];
 
       // SCORE each (Sonnet) -> code computes score -> upsert + tier --------------

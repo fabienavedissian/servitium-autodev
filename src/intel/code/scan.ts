@@ -130,7 +130,22 @@ function sampleFiles(dir: string, area: string, limit = 60): string {
 export async function runCodeScan(deps: CodeScanDeps, repoArg?: string): Promise<{ repo: string; opportunities: number; costUsd: number; note?: string }> {
   const now = deps.now ?? new Date();
   const at = now.toISOString();
-  const repo = repoArg ?? repoForDay(now);
+  // Owner consignes: recent logbook want/note entries become directives the
+  // scan must investigate. A fresh consigne that names a repo also STEERS which
+  // repo is scanned next (overrides the daily rotation) so the owner doesn't
+  // wait a full cycle. 14-day freshness window → rotation resumes afterwards.
+  const freshCutoff = new Date(now.getTime() - 14 * 86_400_000).toISOString();
+  const freshWants = (deps.db
+    .prepare("SELECT summary FROM logbook WHERE source='owner' AND kind IN ('want','note') AND created_at >= ? ORDER BY id DESC LIMIT 8")
+    .all(freshCutoff) as { summary: string }[]).map((r) => r.summary);
+  const steeredRepo = !repoArg ? CODE_REPOS.find((r) => freshWants.some((d) => d.toLowerCase().includes(r))) : undefined;
+  const repo = repoArg ?? steeredRepo ?? repoForDay(now);
+  // Directives for the prompt: consignes naming THIS repo, plus general ones
+  // (mentioning no repo) which apply everywhere.
+  const repoDirectives = freshWants.filter(
+    (d) => d.toLowerCase().includes(repo) || !CODE_REPOS.some((r) => d.toLowerCase().includes(r)),
+  );
+  if (steeredRepo) deps.log?.(`📌 Code scan steered to ${repo} by an owner consigne`);
   const rs = { spentUsd: 0 };
   const runId = repos.startRun(deps.db, `code:${at}`, at, 'code');
   const stage = (s: string, d = '') => {
@@ -176,7 +191,7 @@ export async function runCodeScan(deps: CodeScanDeps, repoArg?: string): Promise
     stage('AUDIT', `${repo}/${area}`);
     const files = sampleFiles(dir, area);
     if (!files) continue;
-    const text = await runSieAudit(deps, rs, dir, codeAuditPrompt(repo, area, files));
+    const text = await runSieAudit(deps, rs, dir, codeAuditPrompt(repo, area, files, repoDirectives));
     const found = parseJsonLoose<{ opportunities?: CodeOpp[] }>(text)?.opportunities ?? [];
     candidates.push(...found);
   }

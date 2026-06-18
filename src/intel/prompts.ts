@@ -193,12 +193,16 @@ export function translateFeasibilityPrompt(f: Record<string, unknown>): string {
   ].join('\n\n');
 }
 
-export function codeAuditPrompt(repo: string, area: string, fileList: string): string {
+export function codeAuditPrompt(repo: string, area: string, fileList: string, ownerDirectives: string[] = []): string {
+  const directives = ownerDirectives.length
+    ? `OWNER DIRECTIVES — the owner explicitly asked the engine to investigate these. Treat them as TOP PRIORITY: actively look for and surface findings that address them in this repo/area (even if only tangentially related), IN ADDITION to the normal audit:\n${ownerDirectives.map((d) => `- ${d}`).join('\n')}`
+    : '';
   return [
     `You are a senior engineer auditing the "${repo}" repo, area "${area}". Use your file tools (read, grep, glob)`,
     `to inspect the real code, then propose CONCRETE, high-value improvements. Each MUST cite a real file path`,
     `(and line if possible) as evidence - no vague advice. Cover: security flaws, performance, refactor/dead code,`,
     `missing tests, best-practice violations, risky patterns, and small feature gaps.`,
+    directives,
     `ALSO flag FRAMEWORK MODERNIZATION (kind "refactor"): Angular -> prefer signals + the @if/@for/@switch control flow`,
     `over *ngIf/*ngFor, standalone components, inject(), the new input()/output()/model(); flag legacy NgModules,`,
     `constructor-injection-only, or *ngIf still in templates. NestJS -> current patterns, avoid deprecated APIs.`,
@@ -206,7 +210,7 @@ export function codeAuditPrompt(repo: string, area: string, fileList: string): s
     `Files in scope (a sample):\n${fileList}`,
     `Work in English. Output ONLY JSON: {"opportunities":[{"kind":"security|performance|refactor|test-gap|feature|lib-upgrade","title":string,"thesis":string,"whyNow":string,"fit":string,"dedupKey":string,"evidence":["src/x/y.ts:42"],"severity":"high|medium|low"}]} (max 6, only the genuinely worthwhile).`,
     `dedupKey = "code:${repo}:<short-slug>". ${ground()}`,
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 }
 
 // Informational research report (compte-rendu) on an owner question - NOT an actionable opportunity.

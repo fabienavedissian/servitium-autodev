@@ -362,7 +362,7 @@ async function renderOpportunities() {
   const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
   const last = ov.lastRun;
   const lastTxt = last ? `dernière veille ${esc(String(last.run_date).split('#')[0])} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
-  const statFilter = seg([['open', 'À traiter'], ['all', 'Tout']], 'stat', OPP_STATUS);
+  const statFilter = seg([['open', 'À traiter'], ['done', 'Complétées'], ['all', 'Tout']], 'stat', OPP_STATUS);
   const srcFilter = seg([['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']], 'src', OPP_SOURCE);
   const lb = Object.entries(ov.learnedBias || {}).sort((a, b) => b[1] - a[1]);
   const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? icon('up', 13) : icon('down', 13)} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
@@ -376,7 +376,7 @@ async function renderOpportunities() {
       <div class="tb-filters">${statFilter}${srcFilter}</div>
     </div>
     ${lbHtml}
-    <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
+    <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : OPP_STATUS === 'done' ? 'Aucune feature marquée comme complétée. Ferme une opportunité avec « Clôturer » pour la faire apparaître ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
   $('#view').querySelectorAll('[data-stat]').forEach((b) => b.addEventListener('click', () => { OPP_STATUS = b.dataset.stat; renderOpportunities(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
@@ -681,7 +681,7 @@ function whyNot(o) {
 const runLineHTML = (r) => `<div class="run-line"><span class="chip state ${esc(String(r.status))}">${esc(String(r.run_date).split('#')[0])}</span><span class="muted small">${r.queries_run || 0} recherches · ${r.hits_fetched || 0} pages lues · ${r.signals_new || 0} signaux · ${r.opportunities || 0} opportunités</span><span class="muted small">${usd(r.cost_usd)}</span></div>`;
 const sigHTML = (s) => `<div class="sig" data-sig="${s.id}"><div class="sig-title">${esc(s.title)}${s.source_url ? ` <a href="${esc(s.source_url)}" target="_blank" rel="noopener">${esc(s.source_domain || 'source')} ${EXT}</a>` : ''}</div>${s.summary ? `<div class="sig-sum">${esc(s.summary)}</div>` : ''}</div>`;
 const angleAccHTML = (a, sigs) => `<div class="acc" data-angle="${esc(a)}"><button class="acc-head">${CHEV}<span class="acc-title">${esc(ANGLE_FR[a] || a)}</span><span class="acc-count">${sigs.length}</span></button><div class="acc-body">${sigs.map(sigHTML).join('')}</div></div>`;
-const nrHTML = (o) => `<div class="nr" data-id="${o.id}"><div class="nr-score ${scoreClass(o.score)}">${o.score ?? '?'}</div><div class="nr-main"><div class="nr-title">${esc(o.title)} <span class="chip">${esc(o.status)}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span></div>${o.thesis ? `<div class="muted small">${esc(o.thesis)}</div>` : ''}<div class="nr-why">Pourquoi non retenu : ${whyNot(o)}</div></div></div>`;
+const nrHTML = (o) => `<div class="nr" data-id="${o.id}"><div class="nr-score ${scoreClass(o.score)}">${o.score ?? '?'}</div><div class="nr-main"><div class="nr-title">${esc(o.title)} <span class="chip">${esc(o.status)}</span><span class="chip ${esc(o.kind)}">${esc(KIND_FR[o.kind] || o.kind)}</span></div>${o.thesis ? `<div class="muted small">${esc(o.thesis)}</div>` : ''}<div class="nr-why">Pourquoi non retenu : ${whyNot(o)}</div><div class="nr-act"><button class="btn ok small" data-brief-nr title="Forcer une investigation Opus sur cette feature écartée — elle remontera dans « Mes briefs »">Briefer quand même</button></div></div></div>`;
 function wireAccHeads(root) {
   root.querySelectorAll('.acc-head').forEach((hd) => { if (hd.dataset.wired) return; hd.dataset.wired = '1'; hd.addEventListener('click', () => hd.parentElement.classList.toggle('open')); });
 }
@@ -698,6 +698,14 @@ async function renderResearch() {
     <div class="section-title">Considéré mais non retenu <span data-nr-count class="st-c">· ${nr.length}</span></div>
     <div class="acc" data-nr-acc><button class="acc-head">${CHEV}<span class="acc-title">Opportunités écartées</span><span class="acc-count">${nr.length}</span></button><div class="acc-body not-retained">${nr.length ? nr.map(nrHTML).join('') : '<div class="muted" style="padding:10px">Rien d\'écarté pour l\'instant.</div>'}</div></div>`;
   wireAccHeads($('#view'));
+  // Delegated so it also catches écartées appended by the live updater.
+  $('[data-nr-acc]')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-brief-nr]');
+    if (!b) return;
+    e.stopPropagation();
+    const id = b.closest('.nr')?.dataset.id;
+    if (id) triggerBrief(id, b);
+  });
 }
 // Surgical live update: never rebuilds -> open accordions stay open, no flicker, no scroll jump.
 async function updateResearchLive() {
