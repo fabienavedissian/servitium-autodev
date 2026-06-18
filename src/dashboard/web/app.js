@@ -61,6 +61,7 @@ const ICON = {
   play: '<polygon points="6 3 20 12 6 21 6 3"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><path d="M21 12H9"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  checkCircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
@@ -106,7 +107,7 @@ function renderLogin() {
 
 /* ---------- Shell ---------- */
 const NAV_GROUPS = [
-  ['Pilotage', [['home', 'Accueil', 'home'], ['opportunities', 'Opportunités', 'target'], ['validated', 'Mes briefs', 'briefcase']]],
+  ['Pilotage', [['home', 'Accueil', 'home'], ['opportunities', 'Opportunités', 'target'], ['validated', 'Mes briefs', 'briefcase'], ['done', 'Réalisé', 'checkCircle']]],
   ['Transparence', [['research', 'Veille', 'eye'], ['reports', 'Comptes-rendus', 'fileText'], ['logbook', 'Carnet de bord', 'book']]],
   ['Build · secondaire', [['overview', 'Aperçu', 'layout'], ['proposals', 'Propositions', 'list'], ['runs', 'Runs', 'play']]],
 ];
@@ -184,6 +185,7 @@ function route() {
   else if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'opportunities') renderOpportunities();
   else if (VIEW === 'validated') renderValidated();
+  else if (VIEW === 'done') renderDone();
   else if (VIEW === 'research') renderResearch();
   else if (VIEW === 'reports') renderReports();
   else if (VIEW === 'logbook') renderLogbook();
@@ -362,7 +364,7 @@ async function renderOpportunities() {
   const [ov, list] = await Promise.all([api('/sie/overview'), api(`/opportunities?status=${OPP_STATUS}&source=${OPP_SOURCE}`)]);
   const last = ov.lastRun;
   const lastTxt = last ? `dernière veille ${esc(String(last.run_date).split('#')[0])} · ${esc(last.status)} · ${last.opportunities || 0} opportunités · ${usd(last.cost_usd)}` : 'aucune veille pour l’instant';
-  const statFilter = seg([['open', 'À traiter'], ['done', 'Complétées'], ['all', 'Tout']], 'stat', OPP_STATUS);
+  const statFilter = seg([['open', 'À traiter'], ['all', 'Tout']], 'stat', OPP_STATUS);
   const srcFilter = seg([['all', 'Toutes'], ['web', 'Web'], ['code', 'Code']], 'src', OPP_SOURCE);
   const lb = Object.entries(ov.learnedBias || {}).sort((a, b) => b[1] - a[1]);
   const lbHtml = lb.length ? `<div class="learned"><span class="muted small">Le moteur a appris de tes choix</span> ${lb.map(([k, v]) => `<span class="lb ${v > 0 ? 'up' : 'down'}">${v > 0 ? icon('up', 13) : icon('down', 13)} ${esc(KIND_FR[k] || k)}</span>`).join(' ')}</div>` : '';
@@ -376,7 +378,7 @@ async function renderOpportunities() {
       <div class="tb-filters">${statFilter}${srcFilter}</div>
     </div>
     ${lbHtml}
-    <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : OPP_STATUS === 'done' ? 'Aucune feature marquée comme complétée. Ferme une opportunité avec « Clôturer » pour la faire apparaître ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
+    <div id="opps">${list.length ? list.map(oppCard).join('') : `<div class="empty">${OPP_STATUS === 'validated' ? 'Aucune opportunité validée. Clique « Valider » sur une opportunité pour générer son brief + prompt Max ; elle apparaîtra ici.' : '« Lancer la veille » scanne le web ; « Analyser le code » audite tes dépôts.'}</div>`}</div>`;
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderOpportunities(); }));
   $('#view').querySelectorAll('[data-stat]').forEach((b) => b.addEventListener('click', () => { OPP_STATUS = b.dataset.stat; renderOpportunities(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
@@ -393,6 +395,14 @@ async function renderValidated() {
   $('#view').querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { OPP_SOURCE = b.dataset.src; renderValidated(); }));
   $('#view').querySelectorAll('.opp').forEach(wireOpp);
 }
+async function renderDone() {
+  const list = await api('/opportunities?status=done&source=all');
+  $('#view').innerHTML = `
+    <div class="topbar"><div><h2>Réalisé</h2><div class="muted">Features clôturées et livrées. Le moteur les connait et ne les reproposera pas.</div></div></div>
+    <div id="opps">${list.length ? list.map(oppCard).join('') : '<div class="empty">Aucune feature clôturée. Depuis « Opportunités », clique « Clôturer » sur une feature terminée pour la faire apparaître ici.</div>'}</div>`;
+  $('#view').querySelectorAll('.opp').forEach(wireOpp);
+}
+
 // Dynamic (live-patchable) fragments — shared by initial render and the surgical WS update.
 function oppTitleHTML(o) {
   return `#${o.rank ?? '·'} ${esc(o.title)} ${o.flagship ? '<span class="chip flag">phare</span>' : ''} ${o.seen_before ? '<span class="chip seen">déjà vu</span>' : ''} ${o.relevance === 1 ? '<span class="chip ok-chip">pertinent</span>' : o.relevance === -1 ? '<span class="chip no-chip">bruit</span>' : ''}`;
