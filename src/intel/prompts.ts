@@ -227,12 +227,3 @@ export function reportPrompt(question: string): string {
   ].join('\n\n');
 }
 
-export function promptsmithPrompt(filledTemplate: string): string {
-  return [
-    `You are the PROMPTSMITH. Below is a near-final ready-to-paste prompt for a Claude Code Max session.`,
-    `Tighten wording, ensure every acceptance criterion is testable and ties to the test strategy, ensure allowed paths`,
-    `point at plausible real dirs, and that NO internal infra names leak. Do not add fluff. Return the FINAL prompt text only`,
-    `(no JSON, no preamble), ready to paste verbatim.`,
-    `--- DRAFT ---\n${filledTemplate}`,
-  ].join('\n\n');
-}
